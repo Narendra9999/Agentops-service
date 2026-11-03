@@ -1,0 +1,216 @@
+# Agent configuration — all values flow from databricks.yml variables.
+# When running locally/dev, these defaults are used.
+# When running in pipeline, databricks.yml overrides via widget parameters.
+
+agent:
+  name: databricks_docs_agent
+  description: "Databricks Documentation Assistant"
+  version: "1.0.0"
+
+tracing:
+  default_tags:
+    agentops.team: mastercard_platform
+    agentops.use_case: databricks_docs
+  # Optional overrides — all auto-derive from catalog/audit_schema/agent_name
+  # when omitted, so Unity Catalog trace storage wires up with zero config:
+  # uc_trace_storage_enabled: true
+  # sql_warehouse_id: "78563e1df52edcf3"
+  # schema: agentops_audit
+  # table_prefix: databricks_docs_agent
+
+catalog: mc_edacde
+schema: agentops
+
+llm:
+  endpoint: databricks-gpt-oss-120b
+  responses_api: open-responses
+  max_tokens: 4096
+  temperature: 0.1
+  max_history_turns: 10
+  max_retrieval_turns: 3
+
+# Session history persistence — save multi-turn conversations for analytics & replay
+# Both backends can be enabled simultaneously, or either one independently.
+session_history:
+  enabled: false
+
+  # Unity Catalog Delta table — append-only, queryable via SQL/Spark
+  # Works everywhere: Spark SQL on clusters, SQL Statement API on Model Serving/Apps
+  unity_catalog:
+    enabled: false
+    table: session_history           # Stored as {catalog}.{schema}.{table}
+    warehouse_id: 78563e1df52edcf3    # Serverless SQL warehouse (or "auto" to auto-discover)
+    # Columns auto-created: session_id, turn_number, role, content,
+    #   request_time, response_time_ms, model_endpoint, trace_id
+
+  # Lakebase (via DatabricksStore) — low-latency conversation history + user memory
+  # Uses databricks_langchain.DatabricksStore which handles OAuth credential
+  # generation internally — no raw psycopg2 or connection strings needed.
+  lakebase:
+    enabled: true
+    project: agentops-sessions         # Lakebase Autoscaling project name
+    branch: production                 # Lakebase branch
+
+# Long-term agent memory — cross-session user facts with semantic search
+# Uses the same Lakebase DatabricksStore instance as session_history.lakebase.
+# Stored as namespace ("users", user_id) with semantic search via store.search().
+# Pass user_id in custom_inputs to enable: {"user_id": "user@example.com"}
+long_term_memory:
+  enabled: False
+
+vector_search:
+  endpoint: agentops-vs-endpoint
+  index: databricks_docs_index
+  num_results: 5
+  search_type: similarity
+  columns:
+    - chunk_text
+    - url
+    - chunk_id
+  reranker_enabled: true
+  reranker_model: databricks-bge-large-en
+
+tools:
+  calculator: true
+  timestamp: true
+  sql_formatter: true
+  cluster_sizing: true
+
+
+system_prompt: |
+  You are a Databricks Documentation Assistant. You help users understand:
+  - Databricks products and features (Unity Catalog, Delta Lake, MLflow, etc.)
+  - API usage and SDK integration patterns
+  - Coding best practices on the Databricks platform
+  - Configuration, deployment, and troubleshooting
+  You have access to the following tools that may provide additional context:
+  - Calculator: math results for cost/sizing calculations
+  - Timestamp: current UTC time
+  - SQL Formatter: formatted SQL with best-practice warnings
+  - Cluster Sizing: node type specs and cluster recommendations by use case
+
+  When "Tool Results" appear in your context, always incorporate them into your answer.
+  Present tool results clearly — for calculations show the formula and result,
+  for cluster sizing show the recommended config as a table.
+
+  Guidelines:
+  - Always base your answers on the provided documentation context
+  - Include code snippets when relevant
+  - Cite the source URL when referencing a specific doc page
+  - If the context doesn't contain the answer, say so honestly
+  - Keep responses concise and actionable
+
+evaluation:
+  # Scorer modes — select any combination:
+  #   "builtin"              — MLflow built-in scorers only
+  #   "llm_judge"            — Custom LLM-as-judge scorers only
+  #   "domain"               — Domain-specific scorers only
+  #   "builtin,llm_judge"    — Two groups (comma-separated)
+  #   "builtin,domain"       — Two groups
+  #   "llm_judge,domain"     — Two groups
+  #   "all"                  — All three types combined
+  # Multiple groups run in PARALLEL with individual MLflow trace spans.
+  # Default: "builtin" (safest, no external judge calls needed)
+  scorer_mode: all
+
+  # Quality gate threshold — pipeline blocks deployment if mean scores fall below this
+  quality_gate_threshold: 3.5
+
+  # Production monitoring — continuously scores a sample of live traffic with
+  # the same builtin scorers below, after deployment. All optional; omitted
+  # values fall back to the pipeline's sample-rate variables.
+  # production_monitoring:
+  #   enabled: true
+  #   sample_rate: 0.2            # standard scorers (Guidelines/Correctness/RelevanceToQuery)
+  #   safety_sample_rate: 1.0     # Safety scorer — full coverage recommended
+
+  # Judge model for LLM-as-judge scorers (internal FMAPI, no internet needed)
+  judge_model: databricks-meta-llama-3-3-70b-instruct
+
+  # --- MLflow Built-in Scorers (scorer_mode: builtin or all) ---
+  builtin_scorers:
+    # Guidelines: evaluate against natural language criteria
+    guidelines:
+      enabled: true
+      name: response_quality
+      rules:
+        - "The response must directly address the user's question"
+        - "The response must not include fabricated information"
+        - "The response must be concise and well-structured"
+        - "The response must reference Databricks-specific features when applicable"
+
+    # Correctness: compare response to expected answer/facts
+    correctness:
+      enabled: true
+
+    # RelevanceToQuery: check if response addresses the query
+    relevance_to_query:
+      enabled: true
+
+    # Safety: check for harmful content
+    safety:
+      enabled: true
+
+    # RetrievalGroundedness: check if response is grounded in retrieved context
+    # Note: requires RETRIEVER span type in tracing — only works with pre-deployment eval (pyfunc)
+    retrieval_groundedness:
+      enabled: true
+
+  # --- LLM-as-Judge Scorers (scorer_mode: llm_judge or all) ---
+  # 7 custom scorers with detailed rubrics, scored 1-5 by the judge model
+  llm_judge_scorers:
+    source_citation:
+      weight: 0.8               # Lower weight — citation is nice-to-have
+
+  # --- Domain-Specific Scorers (scorer_mode: domain or all) ---
+  # Scorer definitions loaded from: scorers/domain/*.yaml
+  # Each YAML file defines: name, type, rules/criteria/patterns, weight, threshold
+  # Add new scorers by creating a YAML file in scorers/domain/
+  # Supported types: guidelines, rubric, keyword, expected_facts, expected_output
+  domain_scorers:
+    - name: databricks_terminology
+      enabled: true
+      weight: 1.0
+    - name: security_compliance
+      enabled: true
+      weight: 1.5
+      threshold: 4.0
+    # expected_output validates the golden dataset's `expected_output`
+    # (number/string/JSON) AND `expected_response` (word-overlap check)
+    # columns against the response — no LLM call, safe for production
+    # monitoring. Passes only if every populated column on a row is satisfied.
+    # - name: expected_output_check
+    #   type: expected_output
+    #   enabled: true
+    #   weight: 1.0
+ 
+guardrails:
+  enabled: true
+  # Note: LLM-based safety is handled by AI Gateway safety filter
+  # on the serving endpoint (ai_gateway_safety_enabled: true in databricks.yml).
+  pre_llm:
+    min_input_length: 10
+    max_input_length: 4000
+    enabled_checks:
+      - input_length_min
+      - input_length_max
+      - pii
+      - injection
+      - toxicity
+      - intent
+    # Intent uses gibberish deny-list (see pre_llm.py).
+    # Off-topic questions handled by the LLM via system prompt.
+   
+  
+  post_llm:
+    enabled_checks:
+      - toxicity
+      - compliance
+      - pii_leakage
+      - hallucination
+      - quality
+    compliance_blocked_phrases:
+      - "this is the only way"
+      - "always use this approach"
+      - "guaranteed to work"
+    min_response_length: 20
