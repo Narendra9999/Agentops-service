@@ -1,0 +1,43 @@
+resources:
+  jobs:
+    batch_inference_job:
+      name: "agentops-batch-inference-${var.team_name}-${bundle.target}"
+      email_notifications:
+        on_start:
+          - ${var.notification_emails}
+        on_success:
+          - ${var.notification_emails}
+        on_failure:
+          - ${var.notification_emails}
+      job_clusters:
+        - job_cluster_key: agentops_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id}
+            spark_version: ${var.job_cluster_spark_version}
+            node_type_id: ${var.job_cluster_node_type_id}
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            enable_elastic_disk: true
+            autoscale:
+              max_workers: ${var.job_cluster_autoscale_max_worker}
+            aws_attributes:
+              first_on_demand: ${var.job_cluster_aws_attributes_first_on_demand}
+              availability: SPOT_WITH_FALLBACK
+              zone_id: auto
+              spot_bid_price_percent: 100
+              ebs_volume_count: 0
+      tasks:
+        - task_key: run_batch
+          notebook_task:
+            notebook_path: ../src/agent_deployment/batch_inference/notebooks/RunBatchInference.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              agent_name: ${var.agent_name}
+              batch_input_table: ${var.batch_input_table}
+              batch_output_table: ${var.batch_output_table}
+              batch_quarantine_table: ${var.batch_quarantine_table}
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
