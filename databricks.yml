@@ -1,1 +1,314 @@
+bundle:
+  name: agentops
+  terraform:
+    exec_path: terraform
+
+sync:
+  exclude:
+    - terraform_config_files/
+    - .terraform/
+    - .terraform.lock.hcl
+    - tests/
+    - docs/
+    - build/
+
+include:
+  - resources/*.yml
+
+run_as:
+  service_principal_name: !sp_id
+
+# Applies to every job/pipeline/experiment/model resource deployed by this bundle.
+# Source: dab-config.json -> optional_bundle_overrides.permissions
+permissions: !permissions
+
+variables:
+  workspace_path:
+    description: Base path in Databricks workspace for all resources
+    default: !workspace_path
+
+  notification_emails:
+    description: "Email recipients for job start, success, and failure notifications; [] disables emails"
+    default: "narendra.merla@mastercard.com"
+
+  sql_warehouse_name:
+    description: "Fallback SQL warehouse name when the team config does not provide an ID or name"
+    default: !sql_warehouse_name
+
+  # Job cluster settings (resolved by Jenkins from cluster policy)
+  job_cluster_policy_id:
+    description: Policy to attach to job cluster
+    lookup:
+      cluster_policy: !job_cluster_policy_name
+
+  job_cluster_spark_version:
+    description: Spark version for job clusters
+    default: !job_cluster_spark_version
+
+  job_cluster_node_type_id:
+    description: Node type for job clusters
+    default: !job_cluster_node_type_id
+
+  job_cluster_autoscale_max_worker:
+    description: Auto-scale max workers for job cluster
+    default: !job_cluster_autoscale_max_worker
+
+  job_cluster_aws_attributes_first_on_demand:
+    description: AWS first on-demand instances
+    default: !job_cluster_aws_attributes_first_on_demand
+
+  catalog:
+    description: Unity Catalog for storing data and models
+    default: ""
+  schema:
+    description: Schema within the catalog
+    default: agentops
+  audit_schema:
+    description: Schema for audit/pipeline tracking tables
+    default: agentops_audit
+  agent_name:
+    description: Registered model name in UC
+    default: databricks_docs_agent
+  vs_endpoint:
+    description: Vector search endpoint name
+    default: agentops-vs-endpoint
+  llm_endpoint:
+    description: Foundation model serving endpoint
+    default: databricks-gpt-oss-120b
+  embedding_model:
+    description: Embedding model for vector search
+    default: databricks-gte-large-en
+
+  # AI Gateway — safety filter (handles LLM-based content safety at the endpoint level)
+  ai_gateway_safety_enabled:
+    description: "Enable AI Gateway safety filter on serving endpoint (true/false)"
+    default: "true"
+
+  # Framework wheel — stored in UC Volume for serving container access
+  wheel_volume:
+    description: "UC Volume path for framework wheel (catalog.schema.volume_name)"
+    default: wheels
+
+  # Data preparation parameters
+  # Note: ingestion and preprocessing are owned by the application teams and
+  # run before the pipeline. The pipeline starts at vector_search_setup and
+  # only needs the preprocessed source table name.
+  preprocessed_data_table:
+    description: Table name for chunked/preprocessed documents (produced by the team upstream)
+    default: databricks_docs_chunked
+  skip_vector_search_creation:
+    description: "Skip endpoint/index creation in vector_search_setup (yes/no)"
+    default: "no"
+  vs_index:
+    description: Vector search index name
+    default: databricks_docs_index
+  vs_search_type:
+    description: "Search type: similarity, hybrid, mmr"
+    default: similarity
+  vs_num_results:
+    description: Number of results to return from vector search
+    default: "5"
+  vs_reranker_enabled:
+    description: "Enable reranking of search results (true/false)"
+    default: "false"
+  vs_reranker_model:
+    description: Reranker model endpoint for cross-encoder rescoring
+    default: databricks-bge-large-en
+
+  # Evaluation parameters
+  eval_golden_table:
+    description: UC table name for golden evaluation dataset
+    default: eval_golden_dataset
+  eval_adversarial_table:
+    description: UC table name for adversarial evaluation dataset
+    default: eval_adversarial_dataset
+  eval_results_table:
+    description: UC table name for per-row evaluation results
+    default: eval_results
+  
+  team_dir:
+    description: "Team directory name under teams/ (e.g., platform-engineering). Empty = use shared fixtures."
+    default: ""
+  team_config:
+    description: "Path to team config.yaml relative to bundle root (e.g., teams/platform-engineering/config.yaml). Empty = use shared config."
+    default: ""
+
+  team_name:
+    description: "Team name for tagging and tracing (e.g., platform-engineering)"
+    default: ""
+
+  model_signature_json:
+    description: "Optional MLflow model signature JSON passed to RegisterModel (empty = infer default)"
+    default: ""
+
+  mlflow_experiment_id:
+    description: "Optional shared MLflow experiment ID for deploy/evaluation tracing. Empty = use default notebook experiment context."
+    default: ""
+
+  # Unity Catalog trace storage — binds each team's agent experiment (created
+  # once in RegisterModel) to UC OTel Delta tables automatically. No per-team
+  # wiring required; falls back to experiment-managed trace storage if disabled.
+  mlflow_tracing_uc_enabled:
+    description: "Bind the team's MLflow experiment to a Unity Catalog trace location (true/false). Disabled by default — production monitoring reads from the Model Serving inference table instead."
+    default: "false"
+
+  # Production quality monitoring — scheduled, independent job (see
+  # resources/production-monitoring-resource.yml) that scores a sample of
+  # live traffic read from the Model Serving inference table, using the same
+  # config-driven scorers as offline evaluation (no remote-execution
+  # serialization restrictions, unlike MLflow's native production monitoring).
+  production_quality_results_table:
+    description: "UC table name for per-row production quality monitoring results"
+    default: "production_quality_scores"
+  production_quality_sample_fraction:
+    description: "Sampling fraction (0-1) of daily production traffic to score"
+    default: "0.5"
+  production_quality_monitor_schedule:
+    description: "Cron schedule (quartz format) for the production quality monitor job"
+    default: "0 0 6 * * ?"
+  production_quality_monitor_pause_status:
+    description: "PAUSED or UNPAUSED — controls whether the scheduled monitor job runs"
+    default: "UNPAUSED"
+
+  # Model deployment parameters
+  agent_endpoint:
+    description: Display name for the chatbot / serving endpoint
+    default: agentops-docs-chatbot
+  serving_scale_to_zero:
+    description: "Scale endpoint to zero when idle (true/false)"
+    default: "true"
+
+  # Champion model (primary — receives most traffic)
+  champion_model_version:
+    description: "Champion model version (production-proven). Use 'latest' to auto-resolve."
+    default: "latest"
+  champion_workload_size:
+    description: "Compute size for champion: Small, Medium, Large"
+    default: Small
+  champion_traffic_percentage:
+    description: "% of traffic to champion (0-100)"
+    default: "100"
+
+  # Challenger model (optional — A/B testing new version)
+  challenger_enabled:
+    description: "Enable challenger model for A/B testing (true/false)"
+    default: "false"
+  challenger_model_version:
+    description: "Challenger model version to test"
+    default: ""
+  challenger_workload_size:
+    description: "Compute size for challenger: Small, Medium, Large"
+    default: Small
+  challenger_traffic_percentage:
+    description: "% of traffic to challenger (0-100)"
+    default: "0"
+
+  # Inference tables + rate limiting + usage tracking
+  inference_tables_enabled:
+    description: "Auto-capture request/response logs to UC table (true/false)"
+    default: "true"
+  rate_limit_per_user_per_minute:
+    description: "Max requests per user per minute"
+    default: "10"
+  rate_limit_per_endpoint_per_minute:
+    description: "Max total requests per endpoint per minute"
+    default: "100"
+  usage_tracking_enabled:
+    description: "Track token usage per request (true/false)"
+    default: "true"
+
+  # Lakehouse monitoring
+  lakehouse_monitoring_enabled:
+    description: "Enable Lakehouse Monitoring on inference table (true/false)"
+    default: "true"
+  monitoring_granularity:
+    description: "Monitoring time window: 1 hour, 1 day, etc."
+    default: "1 day"
+
+  # Batch inference
+  inference_mode:
+    description: "Inference mode: online, batch, both"
+    default: both
+  batch_input_table:
+    description: "Table with batch input queries"
+    default: batch_input
+  batch_output_table:
+    description: "Table for batch inference results"
+    default: batch_output
+  batch_quarantine_table:
+    description: "Table for guardrail-blocked batch records"
+    default: batch_quarantine
+  batch_schedule:
+    description: "Cron schedule for batch inference (quartz format)"
+    default: "0 0 6 * * ?"
+
+  # ── Pipeline Step Skip Flags ──
+  # Set to "true" to skip a specific pipeline step. Useful for development and debugging.
+  skip_vector_search_setup:
+    description: "Skip vector search setup step (yes/no)"
+    default: "no"
+  skip_register_model:
+    description: "Skip model registration step (yes/no)"
+    default: "no"
+  skip_pre_deployment_eval:
+    description: "Skip pre-deployment evaluation (yes/no)"
+    default: "no"
+  skip_deploy_agent:
+    description: "Skip agent deployment step (yes/no)"
+    default: "no"
+  skip_smoke_test:
+    description: "Skip smoke test (yes/no)"
+    default: "no"
+  skip_post_deployment_eval:
+    description: "Skip post-deployment evaluation (yes/no)"
+    default: "no"
+  skip_production_quality_monitor:
+    description: "Skip the scheduled production quality monitor job (yes/no)"
+    default: "no"
+
+# workspace:
+#   root_path: ~/.bundle/${bundle.name}/${bundle.target}
+
+artifacts:
+  agentops_framework:
+    type: whl
+    path: .
+
+
+targets:
+  # Non-Production environment
+  nonp:
+    mode: development
+    default: true
+    workspace:
+      # host resolves from dab-config.json:
+      #   usecase_specific_variables.team_workspace_host  (if set, team override)
+      #   mandatory_fields.workspace.dab_workspace_host   (default)
+      host: !dab_workspace_host
+      root_path: !dab_root_path
+      artifact_path: !dab_artifact_path
+      state_path: !dab_state_path
+    variables:
+      workspace_path: !workspace_path
+      catalog: !catalog
+      schema: !schema
+      notification_emails: !notification_emails
+      audit_schema: !audit_schema
+      llm_endpoint: !llm_endpoint
+      embedding_model: !embedding_model
+      skip_vector_search_creation: !vector_search_creation_skip
+      agent_name: !agent_name
+      agent_endpoint: !agent_endpoint
+      model_signature_json: !model_signature_json
+      team_name: !team_name
+      team_config: !team_config
+      preprocessed_data_table: !docs_source_table
+      vs_index: !vs_index_name
+      vs_endpoint: !vector_search_endpoint_name
+      skip_vector_search_setup: !vector_search_setup_skip
+      skip_register_model: !register_model_skip
+      skip_pre_deployment_eval: !pre_deployment_eval_skip
+      skip_deploy_agent: !deploy_agent_skip
+      skip_smoke_test: !smoke_test_skip
+      skip_post_deployment_eval: !post_deployment_eval_skip
 
