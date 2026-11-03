@@ -1,0 +1,1153 @@
+{
+  "datasets": [
+    {
+      "name": "agent_payload",
+      "displayName": "Agent Payload",
+      "queryLines": [
+        "WITH parsed AS (\n",
+        "  SELECT\n",
+        "    databricks_request_id,\n",
+        "    request_date,\n",
+        "    request_time,\n",
+        "    status_code,\n",
+        "    execution_duration_ms,\n",
+        "    from_json(\n",
+        "      get_json_object(response, '$.databricks_output.trace.info.tags'),\n",
+        "      'STRUCT<`agentops.tokens.prompt`: STRING, `agentops.tokens.completion`: STRING, `agentops.tokens.total`: STRING, `agentops.cost_usd`: STRING, `agentops.latency_ms`: STRING, `agentops.status`: STRING, `agentops.guardrail.pre_llm.blocked`: STRING, `agentops.guardrail.post_llm.blocked`: STRING, `agentops.guardrail.pre_llm.intent`: STRING>'\n",
+        "    ) AS tags,\n",
+        "    CASE\n",
+        "      WHEN status_code = 200 THEN 'Success'\n",
+        "      ELSE 'Failure'\n",
+        "    END AS request_status\n",
+        "  FROM\n",
+        "    mc_edacde.agentops.`platform-eng-docs-chatbot_payload`\n",
+        ")\n",
+        "SELECT\n",
+        "  databricks_request_id,\n",
+        "  request_date,\n",
+        "  request_time,\n",
+        "  status_code,\n",
+        "  execution_duration_ms,\n",
+        "  CAST(tags.`agentops.tokens.prompt` AS INT) AS prompt_tokens,\n",
+        "  CAST(tags.`agentops.tokens.completion` AS INT) AS completion_tokens,\n",
+        "  CAST(tags.`agentops.tokens.total` AS INT) AS total_tokens,\n",
+        "  CAST(tags.`agentops.cost_usd` AS DOUBLE) AS cost_usd,\n",
+        "  CAST(tags.`agentops.latency_ms` AS DOUBLE) AS latency_ms,\n",
+        "  tags.`agentops.status` AS agent_status,\n",
+        "  tags.`agentops.guardrail.pre_llm.blocked` AS guardrail_pre_llm_blocked,\n",
+        "  tags.`agentops.guardrail.post_llm.blocked` AS guardrail_post_llm_blocked,\n",
+        "  tags.`agentops.guardrail.pre_llm.intent` AS guardrail_pre_llm_intent,\n",
+        "  request_status\n",
+        "FROM\n",
+        "  parsed"
+      ],
+      "columns": [
+        {
+          "displayName": "Total Requests",
+          "expression": "COUNT(`databricks_request_id`)"
+        },
+        {
+          "displayName": "Success Count",
+          "expression": "COUNT_IF(`status_code` = 200)"
+        },
+        {
+          "displayName": "Failure Count",
+          "expression": "COUNT_IF(`status_code` != 200)"
+        },
+        {
+          "displayName": "Success Rate",
+          "expression": "COUNT_IF(`status_code` = 200) * 100.0 / COUNT(`databricks_request_id`)"
+        },
+        {
+          "displayName": "Avg Prompt Tokens",
+          "expression": "AVG(CAST(`prompt_tokens` AS INT))"
+        },
+        {
+          "displayName": "Avg Completion Tokens",
+          "expression": "AVG(CAST(`completion_tokens` AS INT))"
+        },
+        {
+          "displayName": "Total Prompt Tokens",
+          "expression": "SUM(CAST(`prompt_tokens` AS INT))"
+        },
+        {
+          "displayName": "Total Completion Tokens",
+          "expression": "SUM(CAST(`completion_tokens` AS INT))"
+        },
+        {
+          "displayName": "Total Tokens Used",
+          "expression": "SUM(CAST(`total_tokens` AS INT))"
+        },
+        {
+          "displayName": "Total Cost USD",
+          "expression": "SUM(`cost_usd`)"
+        },
+        {
+          "displayName": "Avg Latency Ms",
+          "expression": "AVG(`latency_ms`)"
+        },
+        {
+          "displayName": "Pre-LLM Blocked Count",
+          "expression": "COUNT_IF(`guardrail_pre_llm_blocked` = 'true')"
+        },
+        {
+          "displayName": "Post-LLM Blocked Count",
+          "expression": "COUNT_IF(`guardrail_post_llm_blocked` = 'true')"
+        },
+        {
+          "displayName": "Pre-LLM Block Rate",
+          "expression": "COUNT_IF(`guardrail_pre_llm_blocked` = 'true') * 100.0 / COUNT(`databricks_request_id`)"
+        },
+        {
+          "displayName": "Post-LLM Block Rate",
+          "expression": "COUNT_IF(`guardrail_post_llm_blocked` = 'true') * 100.0 / COUNT(`databricks_request_id`)"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "1cc9b310",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "total_requests",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Total Requests)",
+                      "expression": "MEASURE(`Total Requests`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Requests",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Total Requests)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "success_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Success Rate)",
+                      "expression": "MEASURE(`Success Rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Success Rate (%)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Success Rate)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "total_tokens",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Total Tokens Used)",
+                      "expression": "MEASURE(`Total Tokens Used`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Tokens Used",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Total Tokens Used)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "failure_count",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Failure Count)",
+                      "expression": "MEASURE(`Failure Count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Failures",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Failure Count)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "requests_per_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Total Requests)",
+                      "expression": "MEASURE(`Total Requests`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Requests Per Day",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Total Requests)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "success_failure_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_status",
+                      "expression": "`request_status`"
+                    },
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Total Requests)",
+                      "expression": "MEASURE(`Total Requests`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Success vs Failure Per Day",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Total Requests)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "request_status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Success",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 3
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "token_usage_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "daily(request_date)",
+                      "expression": "DATE_TRUNC(\"DAY\", `request_date`)"
+                    },
+                    {
+                      "name": "measure(Total Tokens Used)",
+                      "expression": "MEASURE(`Total Tokens Used`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Token Usage Per Day",
+                "showTitle": true
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 2
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  }
+                ]
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "daily(request_date)",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural-order"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Total Tokens Used)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "prompt_vs_completion",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Total Requests)",
+                      "expression": "MEASURE(`Total Requests`)"
+                    },
+                    {
+                      "name": "measure(Total Prompt Tokens)",
+                      "expression": "MEASURE(`Total Prompt Tokens`)"
+                    },
+                    {
+                      "name": "measure(Total Completion Tokens)",
+                      "expression": "MEASURE(`Total Completion Tokens`)"
+                    },
+                    {
+                      "name": "measure(Success Rate)",
+                      "expression": "MEASURE(`Success Rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Avg Prompt vs Completion Tokens Per Day",
+                "showTitle": true
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "request_date"
+                  },
+                  {
+                    "fieldName": "measure(Total Requests)"
+                  },
+                  {
+                    "fieldName": "measure(Total Prompt Tokens)"
+                  },
+                  {
+                    "fieldName": "measure(Total Completion Tokens)"
+                  },
+                  {
+                    "fieldName": "measure(Success Rate)"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "total_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Total Cost USD)",
+                      "expression": "MEASURE(`Total Cost USD`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Cost (USD)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Total Cost USD)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "avg_latency",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Avg Latency Ms)",
+                      "expression": "MEASURE(`Avg Latency Ms`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Avg Latency (ms)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Avg Latency Ms)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "cost_per_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Total Cost USD)",
+                      "expression": "MEASURE(`Total Cost USD`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "title": "Cost Per Day",
+                "showTitle": true
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural-order"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Total Cost USD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "date_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f195c93c5a1b41ab8a88da061f6526/datasets/01f195c9b72e12b1812d2bc2cbed266e_request_date",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "request_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Date Range",
+                "showTitle": true
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "request_date",
+                    "queryName": "dashboards/01f195c93c5a1b41ab8a88da061f6526/datasets/01f195c9b72e12b1812d2bc2cbed266e_request_date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "pre_llm_blocked",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Pre-LLM Blocked Count)",
+                      "expression": "MEASURE(`Pre-LLM Blocked Count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Pre-LLM Blocked",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Pre-LLM Blocked Count)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "post_llm_blocked",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Post-LLM Blocked Count)",
+                      "expression": "MEASURE(`Post-LLM Blocked Count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Post-LLM Blocked",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Post-LLM Blocked Count)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 23,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "pre_llm_block_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Pre-LLM Block Rate)",
+                      "expression": "MEASURE(`Pre-LLM Block Rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Pre-LLM Block Rate (%)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Pre-LLM Block Rate)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 23,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "post_llm_block_rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "measure(Post-LLM Block Rate)",
+                      "expression": "MEASURE(`Post-LLM Block Rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Post-LLM Block Rate (%)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Post-LLM Block Rate)",
+                  "rowNumber": 0
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 23,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "guardrail_intent_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "count(databricks_request_id)",
+                      "expression": "COUNT(`databricks_request_id`)"
+                    },
+                    {
+                      "name": "guardrail_pre_llm_intent",
+                      "expression": "`guardrail_pre_llm_intent`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Pre-LLM Guardrail Intent Distribution",
+                "showTitle": true
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(databricks_request_id)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "databricks_request_id"
+                },
+                "color": {
+                  "fieldName": "guardrail_pre_llm_intent",
+                  "displayName": "guardrail_pre_llm_intent",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "guardrail_blocks_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Pre-LLM Blocked Count)",
+                      "expression": "MEASURE(`Pre-LLM Blocked Count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Guardrail Blocks Per Day",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "displayName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Pre-LLM Blocked Count)",
+                  "displayName": "Pre-LLM Blocked Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "request_date",
+                  "displayName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 26,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "stacked_tokens",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agent_payload",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "measure(Total Prompt Tokens)",
+                      "expression": "MEASURE(`Total Prompt Tokens`)"
+                    },
+                    {
+                      "name": "measure(Total Completion Tokens)",
+                      "expression": "MEASURE(`Total Completion Tokens`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Prompt vs Completion Tokens Per Day",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "measure(Total Prompt Tokens)",
+                      "displayName": "Prompt Tokens"
+                    },
+                    {
+                      "fieldName": "measure(Total Completion Tokens)",
+                      "displayName": "Completion Tokens"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 32,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
