@@ -1,0 +1,11 @@
+name: operational_readiness
+enabled: true
+weight: 1.0
+threshold: null
+criteria: "Operational readiness: whether the response reflects production best practices — auto-scaling, monitoring, security hardening, CI/CD, and workspace governance — rather than only a minimal/dev-only answer."
+rubric: |
+  - 1: Suggests an approach that would be unsafe or broken in production (e.g., disabling security controls, no retry/error handling, hardcoded secrets)
+  - 2: Technically works but ignores operational concerns entirely (no mention of monitoring, scaling, or governance where clearly relevant)
+  - 3: Addresses the immediate question but only partially considers production readiness (e.g., mentions auto-scaling but not cost or governance implications)
+  - 4: Covers the key operational considerations with minor gaps (e.g., missing a monitoring recommendation but otherwise production-appropriate)
+  - 5: Fully production-ready guidance — addresses scaling, monitoring, security, and governance as appropriate to the question
