@@ -1,1 +1,55 @@
-
+{
+    "version": "1.0.0",
+    "job_cluster": {
+        "job_cluster_policy_name": "mc_edacde_jobs_compute",
+        "job_cluster_spark_version": "17.3.x-cpu-ml-scala2.13",
+        "job_cluster_autoscale_max_worker": "!mc_edacde_jobs_compute+autoscale.max_workers",
+        "job_cluster_node_type_id": "!mc_edacde_jobs_compute+node_type_id",
+        "job_cluster_aws_attributes_first_on_demand": "!mc_edacde_jobs_compute+aws_attributes.first_on_demand"
+    },
+    "usecase_specific_variables": {
+        "workspace_path": "/Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}",
+        "notification_emails": "narendra.merla@mastercard.com",
+        "workspace_automation_workflow_catalog": "mc_custom_analytics_solutions",
+        "catalog": "mc_custom_analytics_solutions",
+        "schema": "mc_cac_qa",
+        "model_signature_json":"",
+        "audit_schema": "",
+        "agent_name": "",
+        "agent_endpoint": "",
+        "llm_endpoint": "",
+        "embedding_model": "",
+        "sp_id": "9daf6d4a-2eb9-4630-b3ce-232a449d5fea",
+        "workspace_automation_job_max_retries": 2,
+        "max_retry_interval": 60000,
+        "sql_warehouse_name": "",
+        "team_name": "test",
+        "team_config": "teams/test/config.yaml",
+        "vector_search_creation_skip": "",
+        "docs_source_table": "",
+        "vs_index_name": "",
+        "vector_search_endpoint_name": "",
+        "vector_search_setup_skip": "",
+        "register_model_skip": "",
+        "pre_deployment_eval_skip": "",
+        "deploy_agent_skip": "",
+        "smoke_test_skip": "",
+        "post_deployment_eval_skip": ""
+    },
+    "mandatory_fields": {
+        "workspace": {
+            "workspace_name": "mc-edacde-np",
+            "dab_workspace_host": "https://mastercard-np-edacdedbx.cloud.databricks.com",
+            "dab_root_path": "/Workspace/Users/${workspace.current_user.userName}/agentops_service/.bundle/${bundle.name}/${bundle.target}",
+            "dab_artifact_path": "/Workspace/Users/${workspace.current_user.userName}/agentops_service/.bundle/${bundle.name}/${bundle.target}/artifacts",
+            "dab_state_path": "/Workspace/Users/${workspace.current_user.userName}/agentops_service/.bundle/${bundle.name}/${bundle.target}/tf_state"
+        },
+        "dab_controllers": {
+            "skip_auto_rollback": "false",
+            "skip_bundle_destroy": "false",
+            "skip_bundle_deploy": "false",
+            "skip_bundle_run": "false",
+            "databricks_jobs_and_pipeline_to_trigger": "agentops_pipeline"
+        }
+    }
+}
