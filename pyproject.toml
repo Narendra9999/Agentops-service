@@ -1,1 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentops-framework"
+version = "2.1.8"
+description = "AgentOPS Framework — guardrails, evaluation, audit, monitoring"
+requires-python = ">=3.10"
+dependencies = [
+    # Dependencies are pre-installed on Databricks ML runtime.
+    # Listed here for documentation only — install_requires is empty
+    # to avoid pip trying to download behind firewalls.
+]
+
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+# Iterative improvement (MemAlign/GEPA judge alignment + prompt optimization)
+# Install via: pip install agentops-framework[optimization]
+# On Mastercard: pip install agentops-framework[optimization] \
+#   --index-url https://artifacts.mastercard.int/ui/packages/pypi/simple \
+#   --trusted-host artifacts.mastercard.int
+optimization = [
+    "mlflow[genai]>=3.4; python_version < '3.12'",
+    "dspy>=2.6; python_version < '3.12'",
+    "gepa; python_version < '3.12'",
+]
+[tool.uv]
+constraint-dependencies = ["yarl<1.24"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["framework*"]
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+
+
+
+
+
 
