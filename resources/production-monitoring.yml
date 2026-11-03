@@ -1,0 +1,58 @@
+# AgentOPS Production Quality Monitor — scheduled, independent of the deploy
+# pipeline. Reads a sample of the prior day's traffic from the Model Serving
+# inference table (enabled in DeployAgent.py) and scores it with the same
+# config-driven scorers used offline, writing row-level results to a Delta
+# table for dashboards. Replaces MLflow's native production-monitoring
+# scorers (see EnableProductionMonitoring.py), which require UC trace-location
+# + SQL-warehouse binding that has proven unreliable in this workspace.
+
+resources:
+  jobs:
+    agentops_production_quality_monitor:
+      name: "agentops-production-quality-monitor-${var.team_name}-${bundle.target}"
+      email_notifications:
+        on_start:
+          - ${var.notification_emails}
+        on_success:
+          - ${var.notification_emails}
+        on_failure:
+          - ${var.notification_emails}
+      job_clusters:
+        - job_cluster_key: agentops_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id}
+            spark_version: ${var.job_cluster_spark_version}
+            node_type_id: ${var.job_cluster_node_type_id}
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            enable_elastic_disk: true
+            autoscale:
+              max_workers: ${var.job_cluster_autoscale_max_worker}
+            aws_attributes:
+              first_on_demand: ${var.job_cluster_aws_attributes_first_on_demand}
+              availability: SPOT_WITH_FALLBACK
+              zone_id: auto
+              spot_bid_price_percent: 100
+              ebs_volume_count: 0
+      schedule:
+        quartz_cron_expression: ${var.production_quality_monitor_schedule}
+        timezone_id: UTC
+        pause_status: ${var.production_quality_monitor_pause_status}
+      tasks:
+        - task_key: score_production_payloads
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/ProductionQualityMonitor.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              team_name: ${var.team_name}
+              agent_endpoint: ${var.agent_endpoint}
+              results_table: ${var.production_quality_results_table}
+              sample_fraction: ${var.production_quality_sample_fraction}
+              skip_production_quality_monitor: ${var.skip_production_quality_monitor}
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
