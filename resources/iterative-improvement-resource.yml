@@ -1,0 +1,132 @@
+# Iterative Improvement Pipeline — Judge Alignment + Prompt Optimization + Skills
+# Manual-trigger only (no schedule). Run after domain experts label traces in MLflow UI.
+#
+# Prerequisites:
+#   1. At least 10 expert-labeled traces in the MLflow experiment
+#   2. Labels logged via MLflow UI / Review App with assessments
+#
+# Pipeline flow:
+#   01_JudgeAlignment → 02_PromptOptimization → 03_SkillGeneration → 04_AgentWithSkills → 05_HeldOutEvaluation
+#
+# Trigger: databricks bundle run agentops_iterative_improvement -t <target>
+#
+# Reference: https://github.com/WesleyPasfield/at-bat-assistant
+
+resources:
+  jobs:
+    agentops_iterative_improvement:
+      name: "agentops-iterative-improvement-${var.team_name}-${bundle.target}"
+      email_notifications:
+        on_start:
+          - ${var.notification_emails}
+        on_success:
+          - ${var.notification_emails}
+        on_failure:
+          - ${var.notification_emails}
+      job_clusters:
+        - job_cluster_key: agentops_cluster
+          new_cluster:
+            policy_id: ${var.job_cluster_policy_id}
+            spark_version: ${var.job_cluster_spark_version}
+            node_type_id: ${var.job_cluster_node_type_id}
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            enable_elastic_disk: true
+            autoscale:
+              max_workers: ${var.job_cluster_autoscale_max_worker}
+            aws_attributes:
+              first_on_demand: ${var.job_cluster_aws_attributes_first_on_demand}
+              availability: SPOT_WITH_FALLBACK
+              zone_id: auto
+              spot_bid_price_percent: 100
+              ebs_volume_count: 0
+
+      tags:
+        agentops.pipeline: iterative_improvement
+        agentops.trigger: manual
+      tasks:
+        - task_key: judge_alignment
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/01_JudgeAlignment.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              judge_name: response_quality
+              judge_model: databricks-meta-llama-3-3-70b-instruct
+              embedding_model: databricks-gte-large-en
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
+
+        - task_key: prompt_optimization
+          depends_on:
+            - task_key: judge_alignment
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/02_PromptOptimization.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              judge_model: databricks-meta-llama-3-3-70b-instruct
+              aligned_judge_name: response_quality_aligned
+              n_runs: "3"
+              max_metric_calls: "100"
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
+
+        - task_key: skill_generation
+          depends_on:
+            - task_key: prompt_optimization
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/03_SkillGeneration.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              judge_model: databricks-meta-llama-3-3-70b-instruct
+              aligned_judge_name: response_quality_aligned
+              max_metric_calls: "150"
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
+
+        - task_key: agent_with_skills
+          depends_on:
+            - task_key: skill_generation
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/04_AgentWithSkills.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              team_name: ${var.team_name}
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
+
+        - task_key: held_out_evaluation
+          depends_on:
+            - task_key: agent_with_skills
+          notebook_task:
+            notebook_path: ../src/agent_development/agent_evaluation/notebooks/05_HeldOutEvaluation.py
+            base_parameters:
+              agent_name: ${var.agent_name}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              audit_schema: ${var.audit_schema}
+              environment: ${bundle.target}
+              aligned_judge_name: response_quality_aligned
+              agent_endpoint: ${var.agent_endpoint}
+          job_cluster_key: agentops_cluster
+          libraries:
+            - whl: ../dist/agentops_framework-*.whl
