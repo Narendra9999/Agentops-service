@@ -1,0 +1,11 @@
+name: infrastructure_accuracy
+enabled: true
+weight: 1.5
+threshold: null
+criteria: "Infrastructure accuracy: factual correctness of Databricks platform architecture, cluster/compute policy configuration, Unity Catalog setup, and CLI/API usage described in the response."
+rubric: |
+  - 1: Contains fabricated APIs, wrong CLI commands, or configuration that would fail/error if applied (e.g., invalid cluster policy field, non-existent Unity Catalog permission)
+  - 2: Mostly incorrect or misleading platform guidance, with only incidental correct details
+  - 3: Partially correct — right general approach but notable factual errors or outdated configuration (e.g., references a deprecated compute policy option)
+  - 4: Correct on all key infrastructure facts with minor imprecisions (e.g., omits an optional flag but the core configuration is valid)
+  - 5: Fully accurate — all CLI commands, API calls, cluster/UC configuration, and architecture details match current Databricks platform behavior
