@@ -1,7 +1,5 @@
-> The current integration executes the original AgentOPS lifecycle notebooks.
-> See [deployment details](../../src/teams/platform-intelligence/deployment/README.md). Version 19 results below used the superseded
-> team lifecycle and do not validate the original notebooks. A new FEVM run is
-> in progress; its outcome will be recorded separately.
+The original AgentOPS pipeline deployed version **20** successfully.
+See [the pipeline result](../../src/teams/platform-intelligence/deployment/README.md).
 
 # Platform intelligence supervisor example
 
@@ -13,7 +11,7 @@ The default deployment packages the existing supervisor **ResponsesAgent** and
 Platform knowledge worker together. Cost intelligence calls the existing Genie
 STANDARD agent. Lakebase supplies explicit supervisor memory tools plus App
 conversation history, bounded summaries and preferences. The remote knowledge
-worker option remains configurable. FEVM model version **19** and the updated App
+worker option remains configurable. FEVM model version **20** and the updated App
 are live; persistent memory, fresh-conversation recall and specialist routing passed
 deployed checks.
 See the team README for deployment evidence.
