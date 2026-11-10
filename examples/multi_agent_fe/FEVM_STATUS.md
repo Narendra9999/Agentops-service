@@ -1,3 +1,7 @@
+> Fresh agent `fe-platform-intelligence`, model version **1**, passed the original
+> pipeline and live validation. See [fresh deployment results](../../src/teams/platform-intelligence/deployment/FRESH_DEPLOYMENT.md).
+> App deployment remains deferred; earlier endpoint results below are historical.
+
 # Current original AgentOPS deployment
 
 ## Original AgentOPS pipeline rollout — version 20 (2026-11-10)

@@ -1,3 +1,7 @@
+> Fresh agent `fe-platform-intelligence`, model version **1**, passed the original
+> pipeline and live validation. See [fresh deployment results](deployment/FRESH_DEPLOYMENT.md).
+> App deployment remains deferred; earlier endpoint results below are historical.
+
 # Platform intelligence: agent-managed memory and embedded Platform knowledge
 
 The existing supervisor ResponsesAgent is integrated through AgentOPS's standard
