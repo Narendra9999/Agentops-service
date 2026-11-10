@@ -6,6 +6,18 @@
 
 # COMMAND ----------
 
+# Resolve shared framework from the deployed bundle before dependency setup.
+import os, sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
+_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+
+
 dbutils.widgets.text("catalog", "classic_stable_cykcbe_catalog")
 dbutils.widgets.text("schema", "agentops")
 dbutils.widgets.text("agent_name", "databricks_docs_agent")
@@ -205,6 +217,9 @@ import requests, json as _json
 
 from framework.inference import extract_response_text
 
+from framework.team_runtime import TeamRuntime
+team_runtime = TeamRuntime(_bundle_root, team_name, dbutils)
+
 def query_agent(endpoint, content):
     """Query a ResponsesAgent endpoint via REST API."""
     token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
@@ -213,7 +228,7 @@ def query_agent(endpoint, content):
         host = f"https://{host}"
     url = f"{host}/serving-endpoints/{endpoint}/invocations"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(url, headers=headers, json={"input": [{"role": "user", "content": content}]})
+    resp = requests.post(url, headers=headers, json=team_runtime.request(content), timeout=(20,240))
     resp.raise_for_status()
     data = resp.json()
     return extract_response_text(data)

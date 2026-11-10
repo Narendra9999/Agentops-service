@@ -61,7 +61,7 @@ def test_endpoint_evaluation_passes_native_responses_inputs_to_mlflow():
     ])
     with patch("framework.evaluation.evaluation_pipeline.mlflow.genai.to_predict_fn") as factory, patch(
         "framework.evaluation.evaluation_pipeline.mlflow.genai.evaluate",
-        return_value=SimpleNamespace(metrics={}, tables={}),
+        return_value=SimpleNamespace(metrics={}, tables={}, result_df=pd.DataFrame({"error_message":[None,None]})),
     ) as evaluate:
         run_evaluation(
             eval_dataset=dataset, model_endpoint="analytics-responses", scorers=[], use_default_thresholds=False,

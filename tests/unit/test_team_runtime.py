@@ -1,0 +1,73 @@
+"""Shared pipeline contracts for standard and authenticated team agents."""
+from types import SimpleNamespace
+from pathlib import Path
+import pytest
+import yaml
+from framework.team_runtime import TeamRuntime, candidate_model_uri, serving_environment
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_default_request_needs_no_team_or_secret():
+    runtime = TeamRuntime(ROOT, '')
+    assert runtime.request('Hello') == {'input':[{'role':'user','content':'Hello'}]}
+    assert not runtime.enabled
+
+
+def test_team_memory_requests_use_evaluation_owner_and_bound_signature(monkeypatch):
+    secret = SimpleNamespace(get=lambda scope, key: 'unit-test-signing-key')
+    runtime = TeamRuntime(ROOT, 'platform-intelligence', SimpleNamespace(secrets=secret))
+    from fe_multi_agent.memory import verify_context
+    request = runtime.request('Read the saved region')
+    context = verify_context(request['custom_inputs']['application_context'], request['input'])
+    assert context['owner_id'].startswith('evaluation:agentops:')
+    assert context['owner_id'] == runtime.owner
+    with pytest.raises(ValueError, match='does not match'):
+        verify_context(request['custom_inputs']['application_context'],[{'role':'user','content':'Modified'}])
+
+
+def test_candidate_uses_run_version_and_legacy_fallback():
+    dbutils = SimpleNamespace(jobs=SimpleNamespace(taskValues=SimpleNamespace(get=lambda **_: '21')))
+    assert candidate_model_uri(dbutils,'c.s.m') == 'models:/c.s.m/21'
+    def missing(**kwargs):raise ValueError('standalone')
+    dbutils.jobs.taskValues.get = missing
+    assert candidate_model_uri(dbutils,'c.s.m') == 'models:/c.s.m@champion'
+
+
+def test_existing_serving_secret_references_are_preserved(monkeypatch):
+    import sys
+    from types import ModuleType
+    errors = ModuleType('databricks.sdk.errors')
+    errors.NotFound = type('NotFound', (Exception,), {})
+    monkeypatch.setitem(sys.modules, 'databricks.sdk.errors', errors)
+    entity=SimpleNamespace(environment_vars={'CLIENT_SECRET':'{{secrets/scope/key}}'})
+    workspace=SimpleNamespace(serving_endpoints=SimpleNamespace(get=lambda _:SimpleNamespace(config=SimpleNamespace(served_entities=[entity]))))
+    assert serving_environment(ROOT,'',workspace,'endpoint')['CLIENT_SECRET']=='{{secrets/scope/key}}'
+
+
+def test_bundle_uses_original_notebooks_only():
+    bundle=yaml.safe_load((ROOT/'src/teams/platform-intelligence/deployment/databricks.yml').read_text())
+    tasks=bundle['resources']['jobs']['agentops_pipeline']['tasks']
+    canonical=yaml.safe_load((ROOT/'resources/pipeline-resource.yml').read_text())['resources']['jobs']['agentops_pipeline']['tasks']
+    assert [t['task_key'] for t in tasks]==[t['task_key'] for t in canonical]
+    for actual,expected in zip(tasks,canonical):
+        assert actual['notebook_task']['notebook_path'].endswith(expected['notebook_task']['notebook_path'][3:])
+        assert actual.get('depends_on')==expected.get('depends_on')
+    assert not (ROOT/'src/teams/platform-intelligence/agent/fe_multi_agent/pipeline.py').exists()
+
+
+def test_framework_build_stages_only_framework_sources(tmp_path, monkeypatch):
+    from framework.mlops_utils import stage_framework_source
+    import tempfile
+    project = tmp_path / 'project'
+    (project / 'src/framework').mkdir(parents=True)
+    (project / 'src/framework/__init__.py').write_text('')
+    (project / 'src/customer_secrets').mkdir()
+    (project / 'src/customer_secrets/secret.txt').write_text('excluded')
+    (project / 'pyproject.toml').write_text('[project]\nname="framework"\n')
+    staging = tmp_path / 'staging'
+    staging.mkdir()
+    monkeypatch.setattr(tempfile, 'mkdtemp', lambda **_: str(staging))
+    result = Path(stage_framework_source(str(project)))
+    assert (result / 'src/framework/__init__.py').exists()
+    assert not (result / 'src/customer_secrets').exists()

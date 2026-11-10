@@ -7,6 +7,18 @@
 
 # COMMAND ----------
 
+# Resolve shared framework from the deployed bundle before dependency setup.
+import os, sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
+_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+
+
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "")
 dbutils.widgets.text("agent_name", "")
@@ -76,6 +88,10 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read after restart
+import os, sys
+_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
 import os
 
 from framework.notebook_bootstrap import (
@@ -171,8 +187,12 @@ client = MlflowClient()
 
 # "latest" means the most recent registered version (set by RegisterModel)
 if champion_version_param in ("latest", "0", ""):
-    champion_alias = client.get_model_version_by_alias(model_name, "champion")
-    champion_version_resolved = champion_alias.version
+    from framework.team_runtime import candidate_model_uri
+    candidate = candidate_model_uri(dbutils, model_name)
+    if candidate.endswith('@champion'):
+        champion_version_resolved = client.get_model_version_by_alias(model_name, "champion").version
+    else:
+        champion_version_resolved = candidate.rsplit('/', 1)[-1]
     print(f"Resolved champion from @champion alias: v{champion_version_resolved}")
 else:
     champion_version_resolved = champion_version_param
@@ -201,12 +221,19 @@ print(f"  Scale to zero: {scale_to_zero}")
 
 # COMMAND ----------
 
+try:
+    previous_version = client.get_model_version_by_alias(model_name, "champion").version
+except Exception:
+    previous_version = None
+
 def deploy_champion(with_tags=True):
     kwargs = dict(
         endpoint_name=agent_endpoint,
         workload_size=champion_workload,
         scale_to_zero_enabled=scale_to_zero,
     )
+    from framework.team_runtime import serving_environment
+    kwargs["environment_vars"] = serving_environment(bundle_root, team_name, w, agent_endpoint)
     if with_tags:
         kwargs["tags"] = {"environment": environment, "framework": "agentops"}
     return agents.deploy(model_name, champion_version_resolved, **kwargs)
@@ -375,6 +402,9 @@ if not endpoint_ready:
 # MAGIC older served versions left idle (0% traffic) from prior deploys.
 
 # COMMAND ----------
+if previous_version and str(previous_version) != str(champion_version_resolved):
+    client.set_registered_model_alias(model_name, "previous", previous_version)
+client.set_registered_model_alias(model_name, "champion", champion_version_resolved)
 keep_versions = {str(champion_version_resolved)}
 if challenger_enabled and challenger_version:
     keep_versions.add(str(challenger_version))
@@ -503,7 +533,8 @@ if endpoint_ready:
             host = f"https://{host}"
         resp = requests.post(f"{host}/serving-endpoints/{endpoint_name}/invocations",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"input": [{"role": "user", "content": "What is Unity Catalog?"}]})
+            json=__import__('framework.team_runtime', fromlist=['TeamRuntime']).TeamRuntime(
+                bundle_root, team_name, dbutils).request("What is Unity Catalog?"), timeout=(20,240))
         resp.raise_for_status()
         data = resp.json()
         content = extract_response_text(data)

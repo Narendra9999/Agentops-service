@@ -9,67 +9,154 @@ resources:
       name: agentops-platform-intelligence-${bundle.target}
       max_concurrent_runs: 1
       tasks:
-      - task_key: preflight
+      - task_key: vector_search_setup
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/data_preparation/vector_search/notebooks/VectorSearch.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: preflight
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
       - task_key: register_model
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/agent_development/agent/notebooks/RegisterModel.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: register
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
         depends_on:
-        - task_key: preflight
+        - task_key: vector_search_setup
       - task_key: pre_deployment_eval
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PreDeploymentEval.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: pre
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
         depends_on:
         - task_key: register_model
       - task_key: deploy_agent
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/agent_development/agent/notebooks/DeployAgent.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: deploy
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
         depends_on:
         - task_key: pre_deployment_eval
       - task_key: smoke_test
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/SmokeTest.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: smoke
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
         depends_on:
         - task_key: deploy_agent
       - task_key: post_deployment_eval
         notebook_task:
-          notebook_path: ../notebooks/AgentOPSPipeline.py
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PostDeploymentEval.py
           base_parameters:
-            project_root: ${workspace.file_path}
-            stage: post
+            catalog: fevm_catalog_naren
+            schema: agentops_multi
+            audit_schema: agentops_multi_audit
+            agent_name: platform_team
+            team_name: platform-intelligence
+            environment: fevm
+            dependency_source: environment
+            agent_endpoint: fe-platform-agent-team
+            vs_endpoint: agentops-vs-endpoint
+            vs_index: platform_docs_index
+            eval_golden_table: platform_team_golden
+            eval_adversarial_table: platform_team_adversarial
+            eval_results_table: platform_team_eval_results
+            skip_vector_search_creation: 'true'
+            skip_vector_search_setup: 'no'
+            mlflow_tracing_uc_enabled: 'no'
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
-        timeout_seconds: 3600
+        timeout_seconds: 7200
         max_retries: 0
         depends_on:
         - task_key: smoke_test

@@ -482,3 +482,20 @@ def build_env_spec(env_version: str, lib_path: str, extra_deps: list = None) -> 
         "environment_key": "default",
         "spec": {"client": env_version, "dependencies": deps},
     }
+
+
+def stage_framework_source(bundle_root: str) -> str:
+    """Stage just the wheel sources into a fresh writable directory per attempt.
+
+    Workspace FUSE files and previous serverless identities must not own the
+    build output. Excludes application files, virtual environments and bundle state.
+    """
+    import tempfile
+    destination = tempfile.mkdtemp(prefix='agentops-framework-build-')
+    root = Path(bundle_root)
+    for name in ('pyproject.toml', 'setup.py', 'README.md'):
+        if (root / name).is_file():
+            shutil.copyfile(root / name, Path(destination) / name)
+    shutil.copytree(root / 'src/framework', Path(destination) / 'src/framework',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    return destination

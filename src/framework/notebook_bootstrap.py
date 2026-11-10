@@ -81,6 +81,8 @@ def install_air_gapped_packages(packages: list[str], python_version: str = "312"
     Returns the resolved volume path (callers that need it for a follow-up
     install, e.g. model-dependency installs, can reuse it without recomputing).
     """
+    if os.environ.get("AGENTOPS_DEPENDENCY_SOURCE", "volume") == "environment":
+        return ""  # Dependencies are pinned and installed by the job environment.
     vol_path = get_pip_find_links(python_version)
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", *packages,

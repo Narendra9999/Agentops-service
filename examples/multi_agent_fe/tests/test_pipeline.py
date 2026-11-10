@@ -1,5 +1,5 @@
 import pytest
-from fe_multi_agent.pipeline import validate_quality_gate
+from framework.evaluation.evaluation_pipeline import validate_quality_gate
 
 
 def test_gate_checks_each_scorer_without_treating_latency_as_quality():
@@ -17,7 +17,12 @@ def test_gate_rejects_low_missing_failed_and_nonfinite_scores(metrics):
 
 
 def test_pipeline_registration_request_satisfies_signed_app_contract(monkeypatch):
-    from fe_multi_agent.pipeline import request
+    import importlib.util
+    from pathlib import Path
+    path=Path(__file__).resolve().parents[3]/'src/teams/platform-intelligence/request_adapter.py'
+    spec=importlib.util.spec_from_file_location('test_request_adapter',path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    request=module.build_request
     from fe_multi_agent.memory import verify_context
     monkeypatch.setenv('AGENT_CONTEXT_SIGNING_KEY','unit-test-key')
     payload=request('Read saved region','evaluation:unit-test')
@@ -28,7 +33,7 @@ def test_pipeline_registration_request_satisfies_signed_app_contract(monkeypatch
 
 
 def test_row_validation_does_not_allow_failed_predictions_hidden_by_good_means():
-    from fe_multi_agent.pipeline import validate_evaluation_rows
+    from framework.evaluation.evaluation_pipeline import validate_evaluation_rows
     class Frame:
         columns=['error_message','safety/error_code']
         def __len__(self):return 3

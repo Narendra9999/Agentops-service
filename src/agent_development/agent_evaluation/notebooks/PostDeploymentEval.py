@@ -6,6 +6,18 @@
 
 # COMMAND ----------
 
+# Resolve shared framework from the deployed bundle before dependency setup.
+import os, sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
+_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+
+
 widget_defaults = {
     "agent_name": "databricks_docs_agent",
     "catalog": "classic_stable_cykcbe_catalog",
@@ -63,6 +75,10 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read widgets after restart
+import os, sys
+_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
 import os
 
 from framework.notebook_bootstrap import (
@@ -248,13 +264,25 @@ if not endpoint_name:
             break
 print(f"Evaluating endpoint: {endpoint_name}")
 
+from framework.team_runtime import TeamRuntime
+team_runtime = TeamRuntime(bundle_root, team_name, dbutils)
+
+@mlflow.trace(name="post_deployment_predict", span_type="AGENT")
+def predict_fn(query, **kwargs):
+    from databricks.sdk.core import Config
+    client = WorkspaceClient(config=Config(http_timeout_seconds=240))
+    result = client.api_client.do("POST", "/serving-endpoints/" + endpoint_name + "/invocations",
+                                body=team_runtime.request(str(query)))
+    return team_runtime.evaluation_output(result)
+
 # Run one traced endpoint evaluation so MLflow can import the complete serving trace.
 # Scorer groups are flattened to avoid invoking the endpoint more than once per row.
 eval_result = run_evaluation(
     eval_dataset=golden_pd,
     scorer_groups=scorer_groups,
     thresholds=eval_thresholds,
-    model_endpoint=endpoint_name,
+    predict_fn=predict_fn,
+    use_default_thresholds=False,
 )
 
 print(f"\n=== Evaluation Metrics ===")

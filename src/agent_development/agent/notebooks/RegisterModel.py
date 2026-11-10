@@ -53,6 +53,11 @@ if skip_register_model:
 import os
 import subprocess
 import sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
 
 # Serverless compute has no job-cluster wheel library attached yet, so
 # `framework` isn't installed — add src/ to sys.path directly (pure stdlib,
@@ -65,20 +70,15 @@ bootstrap_src_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dir
 sys.path.insert(0, bootstrap_src_root)
 from framework.mlops_utils import get_pip_find_links
 
-vol_path = get_pip_find_links("312")
-subprocess.check_call([
-    sys.executable, "-m", "pip", "install",
-    "databricks-agents==1.5.0",
-    "mlflow>=3.7.0",
-    "databricks-langchain[memory]==0.5.1",
-    "langchain==0.3.21",
-    "langchain-community==0.3.10",
-    "langchain-core==0.3.63",
-    "langchain-text-splitters==0.3.8",
-    "databricks-vectorsearch>=0.40",
+from framework.notebook_bootstrap import install_air_gapped_packages
+vol_path = install_air_gapped_packages([
+    "databricks-agents==1.5.0", "mlflow>=3.7.0",
+    "databricks-langchain[memory]==0.5.1", "langchain==0.3.21",
+    "langchain-community==0.3.10", "langchain-core==0.3.63",
+    "langchain-text-splitters==0.3.8", "databricks-vectorsearch>=0.40",
     "sqlglot", "tabulate", "numpy", "pandas",
-    "--find-links", vol_path, "--no-index", "-q",
 ])
+
 dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -114,16 +114,15 @@ nb_path = workspace_abs(
 nb_dir = os.path.dirname(nb_path)
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(nb_dir)))  # .../files/src
 bundle_root = os.path.dirname(project_root)  # .../files (where pyproject.toml lives)
+sys.path.insert(0, project_root)  # restartPython cleared the initial source bootstrap.
 
 # Serverless job environments don't install wildcard whl paths declared in
 # environments[].spec.dependencies, so build+install the framework package
 # here before any `from framework...` import is attempted. Build from a local
 # writable copy — workspace FUSE paths can block setuptools writes.
-bootstrap_src = "/tmp/agentops_build_src"
-if os.path.exists(bootstrap_src):
-    shutil.rmtree(bootstrap_src)
-shutil.copytree(bundle_root, bootstrap_src, ignore=shutil.ignore_patterns("build", "*.egg-info"))
-bootstrap_wheel_dir = "/tmp/agentops_wheels"
+from framework.mlops_utils import stage_framework_source
+bootstrap_src = stage_framework_source(bundle_root)
+bootstrap_wheel_dir = os.path.join(bootstrap_src, "wheels")
 os.makedirs(bootstrap_wheel_dir, exist_ok=True)
 subprocess.run(
     ["pip", "wheel", bootstrap_src, "--no-deps", "--no-build-isolation", "-w", bootstrap_wheel_dir],
@@ -171,6 +170,15 @@ mlflow.set_registry_uri("databricks-uc")
 # can be slow or brittle to create. Use a stable shared path instead.
 current_user = spark.sql("SELECT current_user()").first()[0]
 experiment_name = f"/Users/{current_user}/{agent_name}"
+_team_registration = {}
+if team_name:
+    with open(team_settings["team_config_path"]) as _team_file:
+        import yaml
+        _team_registration = yaml.safe_load(_team_file) or {}
+_configured_experiment = (_team_registration.get("tracing") or {}).get("experiment_id")
+if _configured_experiment:
+    experiment_name = mlflow.get_experiment(str(_configured_experiment)).name
+
 
 # Bind the experiment to a Unity Catalog trace location automatically for
 # whichever team is being registered — traces land in
@@ -268,19 +276,8 @@ print(f"Team agent dir: {team_agent_dir or '(none)'}  (custom agent: {use_team_a
 # MAGIC ## 2. Build framework wheel + upload to UC Volume
 
 # COMMAND ----------
-wheel_dir = "/tmp/agentops_wheels"
-os.makedirs(wheel_dir, exist_ok=True)
-
-# Build from a local writable copy because workspace FUSE paths on classic job
-# clusters can block setuptools writes (for build/* and *.egg-info updates).
-local_src = "/tmp/agentops_build_src"
-if os.path.exists(local_src):
-    shutil.rmtree(local_src)
-shutil.copytree(
-    bundle_root,
-    local_src,
-    ignore=shutil.ignore_patterns("build", "*.egg-info"),
-)
+wheel_dir = bootstrap_wheel_dir
+local_src = bootstrap_src
 
 # --no-build-isolation: use cluster's setuptools (avoids PyPI download behind firewalls)
 build_result = subprocess.run(
@@ -579,7 +576,7 @@ if use_team_agent and os.path.exists(cost_wrapper):
     # Agent.py is staged inside code_paths so its __file__ lands at
     # <temp>/code/agent/Agent.py — keeping ../configs/ resolution correct.
     python_model = cost_wrapper
-    code_paths = [tools_dir] + team_agent_code_paths(team_agent_dir)
+    code_paths = [tools_dir, framework_dir] + team_agent_code_paths(team_agent_dir)
     # include team configs/ (prompt_templates.yml etc.) so they stage alongside Agent.py
     team_configs_dir = os.path.join(os.path.dirname(team_agent_dir), "configs")
     if os.path.isdir(team_configs_dir):
@@ -589,7 +586,7 @@ if use_team_agent and os.path.exists(cost_wrapper):
     print(f"Registering TEAM custom agent (cost-tracked): {team_agent_dir}")
 elif use_team_agent:
     python_model = os.path.join(team_agent_dir, "Agent.py")
-    code_paths = [tools_dir] + team_agent_code_paths(team_agent_dir)
+    code_paths = [tools_dir, framework_dir] + team_agent_code_paths(team_agent_dir)
     # include team configs/ (prompt_templates.yml etc.) if present
     team_configs_dir = os.path.join(os.path.dirname(team_agent_dir), "configs")
     if os.path.isdir(team_configs_dir):
@@ -611,6 +608,9 @@ for p in code_paths:
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
 
+from framework.team_runtime import TeamRuntime
+team_runtime = TeamRuntime(bundle_root, team_name, dbutils)
+
 with mlflow.start_run(run_name="agent_registration"):
     log_model_kwargs = {
         "artifact_path": "agent",
@@ -620,6 +620,9 @@ with mlflow.start_run(run_name="agent_registration"):
         "resources": resources,
         "conda_env": conda_env,
         "artifacts": model_artifacts,
+        "input_example": team_runtime.request(
+            "Which region is recorded? Read memory only; do not call a worker."
+        ) if team_runtime.enabled else input_example,
     }
     try:
         model_src = open(python_model, encoding="utf-8").read()
@@ -655,14 +658,19 @@ except ImportError:
 uc_model = mlflow.register_model(
     model_uri=model_info.model_uri,
     name=model_name,
-    env_pack=env_pack,
+    **({"env_pack": env_pack} if model_cfg.get("env_pack", True) else {}),
 )
 print(f"Registered: {model_name} version {uc_model.version}")
 
 from mlflow import MlflowClient
 client = MlflowClient()
-client.set_registered_model_alias(model_name, "champion", uc_model.version)
-print(f"Alias set: {model_name}@champion → v{uc_model.version}")
+for _key, _value in {"model_version": str(uc_model.version), "model_uri": model_info.model_uri}.items():
+    dbutils.jobs.taskValues.set(key=_key, value=_value)
+if model_cfg.get("promote_on_registration", True):
+    client.set_registered_model_alias(model_name, "champion", uc_model.version)
+    print(f"Alias set: {model_name}@champion → v{uc_model.version}")
+else:
+    print(f"Candidate v{uc_model.version} registered; champion promotion awaits deployment readiness.")
 
 try:
     old_champion = client.get_model_version_by_alias(model_name, "previous")
@@ -686,30 +694,35 @@ except Exception:
 prompt_name = f"{catalog}.{schema}.{agent_name}_system_prompt"
 system_prompt = agent_config.get("system_prompt", "")
 
-try:
-    prompt_version = mlflow.genai.register_prompt(
-        name=prompt_name,
-        template=system_prompt,
-        commit_message=f"Registered with model v{uc_model.version}",
-        tags={
-            "model_version": str(uc_model.version),
-            "llm_endpoint": agent_config["llm"]["endpoint"],
-        },
-    )
-    print(f"Prompt registered: {prompt_name} v{prompt_version.version}")
+if model_cfg.get("prompt_registry_enabled", True):
+    try:
+        prompt_version = mlflow.genai.register_prompt(
+            name=prompt_name,
+            template=system_prompt,
+            commit_message=f"Registered with model v{uc_model.version}",
+            tags={
+                "model_version": str(uc_model.version),
+                "llm_endpoint": agent_config["llm"]["endpoint"],
+            },
+        )
+        print(f"Prompt registered: {prompt_name} v{prompt_version.version}")
 
-    # Set production alias
-    mlflow.genai.set_prompt_alias(
-        name=prompt_name,
-        alias="production",
-        version=prompt_version.version,
-    )
-    print(f"Prompt alias set: {prompt_name}@production → v{prompt_version.version}")
-except Exception as e:
-    # Prompt registry is required — fail the task rather than silently skipping.
-    pipeline.end_step(step, status="FAILED", output_summary={"error": str(e)[:500]})
-    pipeline.end(status="FAILED")
-    raise RuntimeError(f"Prompt registration failed for '{prompt_name}': {e}") from e
+        # Set production alias
+        mlflow.genai.set_prompt_alias(
+            name=prompt_name,
+            alias="production",
+            version=prompt_version.version,
+        )
+        print(f"Prompt alias set: {prompt_name}@production → v{prompt_version.version}")
+    except Exception as e:
+        # Prompt registry is required — fail the task rather than silently skipping.
+        pipeline.end_step(step, status="FAILED", output_summary={"error": str(e)[:500]})
+        pipeline.end(status="FAILED")
+        raise RuntimeError(f"Prompt registration failed for '{prompt_name}': {e}") from e
+else:
+    if not os.path.isfile(os.path.join(team_configs_dir, "prompts.json")):
+        raise ValueError("Disabling Prompt Registry requires a packaged prompts.json manifest")
+    print("Prompt Registry explicitly disabled; hash-verified team prompt manifest is packaged with the model.")
 
 # COMMAND ----------
 

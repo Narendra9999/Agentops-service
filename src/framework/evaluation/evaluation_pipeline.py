@@ -9,6 +9,7 @@ Used as CI/CD quality gate before environment promotion.
 import mlflow
 import pandas as pd
 import logging
+import math
 import json
 import uuid
 import requests
@@ -425,7 +426,10 @@ def run_evaluation(
             scorers=all_scorers,
         )
         metrics = eval_result.metrics if hasattr(eval_result, "metrics") and eval_result.metrics else {}
-        tables = eval_result.tables if hasattr(eval_result, "tables") else {}
+        tables = dict(eval_result.tables) if hasattr(eval_result, "tables") else {}
+        if getattr(eval_result, "result_df", None) is not None:
+            tables.setdefault("eval_results", eval_result.result_df)
+        validate_evaluation_rows(tables.get("eval_results"), len(eval_data))
     elif scorer_groups and len(scorer_groups) > 1:
         from agent_development.agent_evaluation.evaluation.scorer_loader import run_parallel_evaluation
         parallel_result = run_parallel_evaluation(eval_data, scorer_groups)
@@ -440,7 +444,10 @@ def run_evaluation(
             all_scorers = [s for group in scorer_groups.values() for s in group]
         eval_result = mlflow.genai.evaluate(data=eval_data, scorers=all_scorers)
         metrics = eval_result.metrics if hasattr(eval_result, "metrics") and eval_result.metrics else {}
-        tables = eval_result.tables if hasattr(eval_result, "tables") else {}
+        tables = dict(eval_result.tables) if hasattr(eval_result, "tables") else {}
+        if getattr(eval_result, "result_df", None) is not None:
+            tables.setdefault("eval_results", eval_result.result_df)
+        validate_evaluation_rows(tables.get("eval_results"), len(eval_data))
 
     logger.info(f"Evaluation metrics: {json.dumps(metrics, indent=2, default=str)}")
 
@@ -450,7 +457,7 @@ def run_evaluation(
     for metric_name, threshold in thresholds.items():
         actual = metrics.get(metric_name)
         if actual is not None:
-            passed = actual >= threshold
+            passed = math.isfinite(actual) and actual >= threshold
             gate_results[metric_name] = {
                 "threshold": threshold,
                 "actual": actual,
@@ -459,6 +466,10 @@ def run_evaluation(
             if not passed:
                 all_passed = False
                 logger.warning(f"GATE FAILED: {metric_name} = {actual} (threshold: {threshold})")
+
+        else:
+            all_passed = False
+            gate_results[metric_name] = {"threshold": threshold, "actual": None, "passed": False}
 
     # Extract per-row results
     per_row_df = None
@@ -612,3 +623,27 @@ def raise_if_gate_failed(gate_passed: bool, quality_gate_results: dict, guardrai
         lines.append(f"Failed metrics: {', '.join(failed)}\n")
     lines.append(f"{closing_message} evaluation_id={evaluation_id} in audit table.")
     raise RuntimeError("".join(lines))
+
+
+def validate_evaluation_rows(frame, expected_rows):
+    """Reject incomplete evaluation runs and per-row prediction/scorer failures."""
+    if frame is None or len(frame) != expected_rows:
+        raise RuntimeError("Evaluation did not return every requested scenario")
+    for name in frame.columns:
+        if name == "error_message" or name.endswith(("/error_message", "/error_code")):
+            if any(isinstance(value, str) and value.strip() for value in frame[name]):
+                raise RuntimeError("Evaluation contains prediction or scorer errors in " + name)
+
+
+def validate_quality_gate(metrics, judges, threshold):
+    """Validate uniform native scorer thresholds without gating latency metrics."""
+    quality = {key: value for key, value in metrics.items()
+               if key.split("/")[0] in judges and key.endswith(("/mean", "/pass_rate"))}
+    errors = {key: value for key, value in metrics.items()
+              if key.endswith("/error_count") and value > 0}
+    missing = set(judges) - {key.split("/")[0] for key in quality}
+    if missing or errors or any(not math.isfinite(value) or value < threshold
+                               for value in quality.values()):
+        raise RuntimeError("Evaluation gate failed: " + json.dumps({
+            "quality": quality, "errors": errors, "missing": sorted(missing),
+        }))

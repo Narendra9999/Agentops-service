@@ -5,6 +5,18 @@
 
 # COMMAND ----------
 
+# Resolve shared framework from the deployed bundle before dependency setup.
+import os, sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
+_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+
+
 dbutils.widgets.text("catalog", "classic_stable_cykcbe_catalog")
 dbutils.widgets.text("schema", "agentops")
 dbutils.widgets.text("preprocessed_data_table", "databricks_docs_chunked")

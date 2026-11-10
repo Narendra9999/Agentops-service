@@ -8,6 +8,18 @@
 
 # COMMAND ----------
 
+# Resolve shared framework from the deployed bundle before dependency setup.
+import os, sys
+dbutils.widgets.text("dependency_source", "volume")
+_dependency_source = dbutils.widgets.get("dependency_source").strip()
+if _dependency_source not in {"volume", "environment"}:
+    raise ValueError("dependency_source must be volume or environment")
+os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
+_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+
+
 import os
 
 widget_defaults = {
@@ -64,9 +76,16 @@ import mlflow.pyfunc
 
 from framework.mlops_utils import get_pip_find_links
 
-vol_path = get_pip_find_links("312")
+vol_path = get_pip_find_links("312") if dbutils.widgets.get("dependency_source") == "volume" else ""
 mlflow.set_registry_uri("databricks-uc")
-bootstrap_model_uri = f"models:/{catalog}.{w_schema}.{w_agent_name}@champion"
+from framework.team_runtime import candidate_model_uri
+from framework.team_config import load_team_settings
+_bootstrap_team = load_team_settings(team_name, bundle_root=os.path.dirname(sys.path[0])) if team_name else {}
+bootstrap_model_uri = candidate_model_uri(dbutils, ".".join([
+    _bootstrap_team.get("catalog") or catalog,
+    _bootstrap_team.get("schema") or w_schema,
+    _bootstrap_team.get("agent_name") or w_agent_name,
+]))
 deps_file = mlflow.pyfunc.get_model_dependencies(bootstrap_model_uri)
 artifact_dir = os.path.dirname(deps_file)
 
@@ -86,7 +105,7 @@ with open(deps_file) as requirements:
             continue
         external_deps.append(requirement)
 
-if external_deps:
+if external_deps and dbutils.widgets.get("dependency_source") == "volume":
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", *external_deps,
         "--find-links", vol_path, "--no-index", "-q",
@@ -99,6 +118,10 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read widgets after restart
+import os, sys
+_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
 import os
 
 os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = "2"
@@ -124,7 +147,7 @@ mlflow_experiment_id = resolve_mlflow_experiment_id(
 )
 
 # Recompute wheel path after restart (air-gapped environment — volume is mandatory).
-vol_path = get_pip_find_links("312")
+vol_path = get_pip_find_links("312") if dbutils.widgets.get("dependency_source") == "volume" else ""
 
 # Resolve bundle root for team_config helper
 bundle_paths = resolve_bundle_paths(dbutils)
@@ -217,9 +240,8 @@ model_name = f"{catalog}.{schema}.{agent_name}"
 client = MlflowClient()
 
 # Get the latest version (just registered by RegisterModel step)
-champion = client.get_model_version_by_alias(model_name, "champion")
-model_uri = f"models:/{model_name}@champion"
-print(f"Loading model: {model_uri} (v{champion.version})")
+model_uri = candidate_model_uri(dbutils, model_name)
+print(f"Loading candidate model: {model_uri}")
 
 # Use a shared experiment ID when provided; otherwise keep default notebook context.
 if mlflow_experiment_id:
@@ -228,13 +250,15 @@ if mlflow_experiment_id:
 else:
     print("Using default notebook MLflow experiment (no custom set_experiment)")
 
+from framework.team_runtime import TeamRuntime
+team_runtime = TeamRuntime(bundle_root, team_name, dbutils)
 loaded_model = mlflow.pyfunc.load_model(model_uri)
 if loaded_model is None:
     raise RuntimeError(f"Failed to load model {model_uri}: mlflow.pyfunc.load_model() returned None. Check model registry, dependencies, and MLflow logs above.")
 print(f"Model loaded successfully via mlflow.pyfunc.load_model()")
 
 # Quick sanity check
-test_input = {"input": [{"role": "user", "content": "What is Databricks?"}]}
+test_input = team_runtime.request("Which region is recorded? Read memory only; do not call a worker." if team_runtime.enabled else "What is Databricks?")
 test_output = loaded_model.predict(test_input)
 if test_output is None:
     raise RuntimeError(f"Model predict() returned None. Model may not be a valid ResponsesAgent.")
@@ -294,9 +318,9 @@ def predict_fn(**kwargs):
     from framework.inference import extract_response_text
 
     result = loaded_model.predict(
-        {"input": [{"role": "user", "content": str(query)}]}
+        team_runtime.request(str(query))
     )
-    return extract_response_text(result)
+    return team_runtime.evaluation_output(result)
 
 # Prepare eval data — mlflow.genai.evaluate() is invoked by run_evaluation()
 # below, which builds 'inputs'/'expectations' from golden_pd's

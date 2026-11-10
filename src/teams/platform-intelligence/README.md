@@ -1,3 +1,8 @@
+> The current integration executes the original AgentOPS lifecycle notebooks.
+> See [deployment details](deployment/README.md). Version 19 results below used the superseded
+> team lifecycle and do not validate the original notebooks. A new FEVM run is
+> in progress; its outcome will be recorded separately.
+
 # Platform intelligence: agent-managed memory and embedded Platform knowledge
 
 The existing supervisor ResponsesAgent is integrated through AgentOPS's standard

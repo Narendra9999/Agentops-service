@@ -1,3 +1,8 @@
+> The current integration executes the original AgentOPS lifecycle notebooks.
+> See [deployment details](../../src/teams/platform-intelligence/deployment/README.md). Version 19 results below used the superseded
+> team lifecycle and do not validate the original notebooks. A new FEVM run is
+> in progress; its outcome will be recorded separately.
+
 # Platform intelligence supervisor example
 
 The implementation now lives under

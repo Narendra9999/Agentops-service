@@ -161,6 +161,8 @@ def load_scorer_groups(eval_config: dict, judge_model: str = None, team_scorers_
         if domain:
             groups["domain"] = domain
 
+    if eval_config.get("custom_scorers"):
+        groups["custom"] = _load_team_code_scorers(eval_config, team_scorers_dir)
     total = sum(len(s) for s in groups.values())
     logger.info(f"Loaded {total} scorers in {len(groups)} groups (modes={modes}): "
                 f"{{{', '.join(f'{k}: {len(v)}' for k, v in groups.items())}}}")
@@ -298,13 +300,19 @@ def get_thresholds(eval_config: dict) -> dict:
                 thresholds[f"{name}/mean"] = t
             # Guidelines/keyword/expected_facts produce pass/fail → use pass rate
             else:
-                thresholds[f"{name}/average"] = t
+                thresholds[f"{name}/mean"] = t
 
     # Built-in scorers (Guidelines, Correctness, etc.) produce pass/fail.
     # Their aggregate metrics are pass rates (0.0-1.0).
     # We don't enforce hard thresholds on these by default — they are informational.
     # Users can add explicit thresholds via per-scorer config if needed.
 
+    for name, cfg in eval_config.get("builtin_scorers", {}).items():
+        if cfg.get("enabled", True) and cfg.get("threshold") is not None:
+            thresholds[name + "/mean"] = cfg["threshold"]
+    for entry in eval_config.get("custom_scorers", []):
+        if entry.get("enabled", True):
+            thresholds[entry["name"] + "/mean"] = entry.get("threshold", global_threshold)
     return thresholds
 
 
@@ -871,3 +879,27 @@ def _build_expected_output_scorer(name: str):
     domain_expected_output_scorer.name = name
     return domain_expected_output_scorer
 
+
+
+def _load_team_code_scorers(eval_config, team_scorers_dir):
+    """Load trusted Python scorer factories confined to this team's scorers folder."""
+    import importlib.util
+    from pathlib import Path
+    if not team_scorers_dir:
+        raise ValueError("Custom scorers require a team scorer directory")
+    root = Path(team_scorers_dir).resolve()
+    result = []
+    for entry in eval_config["custom_scorers"]:
+        if not entry.get("enabled", True):
+            continue
+        path = (root / entry["file"]).resolve()
+        if path.parent != root or path.suffix != '.py':
+            raise ValueError("Custom scorer must be a Python file inside team scorers")
+        spec = importlib.util.spec_from_file_location('agentops_scorer_' + entry['name'], path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        scorer = module.build_scorer()
+        if scorer.name != entry['name']:
+            raise ValueError('Custom scorer name does not match configuration')
+        result.append(scorer)
+    return result

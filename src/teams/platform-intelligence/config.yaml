@@ -63,11 +63,16 @@ session_history:
 long_term_memory:
   enabled: false
 tracing:
+  experiment_id: "4384417075366092"
   uc_trace_storage_enabled: false
   default_tags:
     agentops.system_id: platform-intelligence
     agentops.pattern: langgraph_supervisor
 deployment:
+  environment_vars:
+    AGENT_CONTEXT_SIGNING_KEY: '{{secrets/fe-agentops-context/signing-key}}'
+    MLFLOW_EXPERIMENT_ID: '4384417075366092'
+    AGENTOPS_ENVIRONMENT: fevm
   serving_scale_to_zero: true
   champion:
     workload_size: Small
@@ -79,6 +84,9 @@ deployment:
     rate_limit_per_endpoint_per_minute: 100
     usage_tracking_enabled: true
 model:
+  prompt_registry_enabled: false
+  env_pack: false
+  promote_on_registration: false
   pip_dependency_mode: replace
   pip_dependencies:
   - aiohappyeyeballs==2.7.1
@@ -248,16 +256,23 @@ model:
   - scramp==1.4.5
   - asn1crypto==1.5.1
 evaluation:
+  custom_scorers:
+  - name: routing
+    file: routing.py
+    threshold: 0.8
   scorer_mode: builtin,domain
   judge_model: databricks-gpt-oss-120b
   quality_gate_threshold: 0.8
   builtin_scorers:
     correctness:
       enabled: true
+      threshold: 0.8
     relevance_to_query:
       enabled: true
+      threshold: 0.8
     safety:
       enabled: true
+      threshold: 0.8
   domain_scorers:
   - name: cost_grounding
     type: guidelines
@@ -272,3 +287,13 @@ evaluation:
     - When the response provides platform guidance, it cites retrieved Databricks documentation.
       Cost-only input clarification does not require platform documentation. Never claim
       changes to cases or infrastructure.
+
+pipeline:
+  context_signing_secret:
+    scope: fe-agentops-context
+    key: signing-key
+smoke_test:
+  test_queries:
+    valid_query: Explain MLflow tracing for LangGraph with a Databricks documentation citation.
+    grounding: Explain Auto Loader ingestion with a Databricks documentation citation.
+    short_input: '?'
