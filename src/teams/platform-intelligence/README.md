@@ -31,6 +31,37 @@ flowchart TD
     S -. tool spans / tokens / configured costs .-> T[MLflow 3]
 ```
 
+## Original AgentOPS lifecycle
+
+This team uses the same lifecycle notebook implementations as other AgentOPS teams.
+The FEVM bundle supplies serverless compute and `team_name: platform-intelligence`;
+it does not implement registration, evaluation, deployment or smoke logic.
+
+```mermaid
+flowchart LR
+    C[Team config / fixtures / scorers] --> R[Original RegisterModel.py]
+    R --> E[Original PreDeploymentEval.py]
+    E --> D[Original DeployAgent.py: agents.deploy]
+    D --> S[Original SmokeTest.py]
+    S --> P[Original PostDeploymentEval.py]
+    F[Shared AgentOPS framework] --> R
+    F --> E
+    F --> D
+    F --> S
+    F --> P
+```
+
+The shared `TeamRuntime` supports an optional team request adapter. This team's
+adapter signs bounded context with an isolated evaluation owner so pipeline calls
+satisfy the same memory authentication contract as App calls. Routing is a team
+Python scorer loaded by the shared scorer loader; golden and adversarial fixtures
+use the existing AgentOPS schemas. Neither extension replaces a lifecycle stage.
+
+The previous `fe_multi_agent/pipeline.py` and `AgentOPSPipeline.py` runner were
+removed. The earlier version 19 evidence below belongs to that superseded path.
+See [deployment configuration](deployment/README.md) for the original notebook
+paths, FEVM dependency settings and rollout evidence.
+
 ## Configuration and package
 
 ### Where Genie is called

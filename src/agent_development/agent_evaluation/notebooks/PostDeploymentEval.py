@@ -439,6 +439,7 @@ raise_if_gate_failed(
 dbutils.notebook.exit(json.dumps({
     "passed": bool(gate_passed),
     "quality_passed": bool(quality_passed),
+    "quality_scores": {metric: float(gate["actual"]) for metric, gate in quality_gate_results.items()},
     "guardrail_accuracy": float(guardrail_accuracy),
     "evaluation_id": str(evaluation_id),
 }))
