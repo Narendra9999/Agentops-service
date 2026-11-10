@@ -1,0 +1,106 @@
+bundle:
+  name: agentops-platform-single-validation
+sync:
+  paths:
+  - ../../../..
+resources:
+  jobs:
+    agentops_pipeline:
+      name: agentops-platform-single-validation-${bundle.target}
+      max_concurrent_runs: 1
+      parameters:
+      - name: dependency_source
+        default: environment
+      - name: catalog
+        default: fevm_catalog_naren
+      - name: schema
+        default: agentops_multi
+      - name: audit_schema
+        default: agentops_multi_audit
+      - name: agent_name
+        default: platform_single_validation
+      - name: team_name
+        default: platform-engineering-test
+      - name: environment
+        default: fevm
+      - name: agent_endpoint
+        default: fe-platform-single-validation
+      - name: vs_endpoint
+        default: agentops-vs-endpoint
+      - name: vs_index
+        default: platform_docs_index
+      - name: eval_golden_table
+        default: single_refactor_golden
+      - name: eval_adversarial_table
+        default: single_refactor_adversarial
+      - name: eval_results_table
+        default: single_refactor_eval_results
+      - name: skip_vector_search_creation
+        default: 'true'
+      - name: skip_vector_search_setup
+        default: 'no'
+      - name: mlflow_tracing_uc_enabled
+        default: 'no'
+      tasks:
+      - task_key: vector_search_setup
+        notebook_task:
+          notebook_path: ../../../../src/data_preparation/vector_search/notebooks/VectorSearch.py
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+      - task_key: register_model
+        notebook_task:
+          notebook_path: ../../../../src/agent_development/agent/notebooks/RegisterModel.py
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+        depends_on:
+        - task_key: vector_search_setup
+      - task_key: pre_deployment_eval
+        notebook_task:
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PreDeploymentEval.py
+          base_parameters:
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+        depends_on:
+        - task_key: register_model
+      - task_key: deploy_agent
+        notebook_task:
+          notebook_path: ../../../../src/agent_development/agent/notebooks/DeployAgent.py
+          base_parameters:
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+        depends_on:
+        - task_key: pre_deployment_eval
+      - task_key: smoke_test
+        notebook_task:
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/SmokeTest.py
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+        depends_on:
+        - task_key: deploy_agent
+      - task_key: post_deployment_eval
+        notebook_task:
+          notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PostDeploymentEval.py
+          base_parameters:
+            mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
+        environment_key: agentops
+        timeout_seconds: 7200
+        max_retries: 0
+        depends_on:
+        - task_key: smoke_test
+      environments:
+      - environment_key: agentops
+        spec:
+          environment_version: '4'
+          dependencies:
+          - -r ${workspace.file_path}/src/teams/platform-engineering-test/configs/requirements.lock
+targets:
+  fevm:
+    default: true
+    mode: development

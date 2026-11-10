@@ -1,0 +1,130 @@
+agent:
+  name: platform_single_validation
+  description: FEVM validation of the existing single-agent implementation with shared
+    AgentOPS
+  version: 1.0.0
+tracing:
+  experiment_name: /Shared/agentops-platform-single-validation
+  uc_trace_storage_enabled: false
+  default_tags:
+    agentops.validation: shared_pipeline_refactor
+    agentops.pattern: single_agent
+catalog: fevm_catalog_naren
+schema: agentops_multi
+llm:
+  endpoint: databricks-gpt-oss-120b
+  responses_api: open-responses
+  max_tokens: 4096
+  temperature: 0.1
+  max_history_turns: 10
+  max_retrieval_turns: 3
+session_history:
+  enabled: false
+long_term_memory:
+  enabled: false
+vector_search:
+  endpoint: agentops-vs-endpoint
+  index: fevm_catalog_naren.agentops_multi.platform_docs_index
+  columns:
+  - chunk_text
+  - url
+  - chunk_id
+  num_results: 5
+  reranker_enabled: false
+tools:
+  calculator: true
+  timestamp: true
+  sql_formatter: true
+  cluster_sizing: true
+system_prompt: "You are a Databricks Documentation Assistant. You help users understand:\n\
+  - Databricks products and features (Unity Catalog, Delta Lake, MLflow, etc.)\n-\
+  \ API usage and SDK integration patterns\n- Coding best practices on the Databricks\
+  \ platform\n- Configuration, deployment, and troubleshooting\nYou have access to\
+  \ the following tools that may provide additional context:\n- Calculator: math results\
+  \ for cost/sizing calculations\n- Timestamp: current UTC time\n- SQL Formatter:\
+  \ formatted SQL with best-practice warnings\n- Cluster Sizing: node type specs and\
+  \ cluster recommendations by use case\n\nWhen \"Tool Results\" appear in your context,\
+  \ always incorporate them into your answer.\nPresent tool results clearly \u2014\
+  \ for calculations show the formula and result,\nfor cluster sizing show the recommended\
+  \ config as a table.\n\nGuidelines:\n- Always base your answers on the provided\
+  \ documentation context\n- Include code snippets when relevant\n- Cite the source\
+  \ URL when referencing a specific doc page\n- If the context doesn't contain the\
+  \ answer, say so honestly\n- Keep responses concise and actionable\n\nCite the URLs\
+  \ of retrieved documentation when providing platform guidance. Do not invent evidence\
+  \ or claim infrastructure changes."
+evaluation:
+  scorer_mode: builtin,domain
+  judge_model: databricks-gpt-oss-120b
+  quality_gate_threshold: 0.8
+  builtin_scorers:
+    correctness:
+      enabled: true
+      threshold: 0.8
+    relevance_to_query:
+      enabled: true
+      threshold: 0.8
+    safety:
+      enabled: true
+      threshold: 0.8
+  domain_scorers:
+  - name: platform_evidence
+    type: guidelines
+    enabled: true
+    rules:
+    - Platform guidance must be supported by at least one retrieved Databricks documentation
+      URL. Do not claim infrastructure changes.
+guardrails:
+  enabled: true
+  pre_llm:
+    enabled_checks:
+    - input_length_min
+    - input_length_max
+    - pii
+    - injection
+    max_input_length: 12000
+    min_input_length: 2
+  post_llm:
+    enabled_checks:
+    - pii_leakage
+    - compliance
+    - quality
+    min_response_length: 2
+naming:
+  catalog: fevm_catalog_naren
+  schema: agentops_multi
+  audit_schema: agentops_multi_audit
+  agent_endpoint: fe-platform-single-validation
+deployment:
+  environment_vars:
+    DATABRICKS_HOST: https://fevm-classic-stable-naren.cloud.databricks.com
+    DATABRICKS_CLIENT_ID: e3bcf75e-7b34-4026-8860-d5e4423ea2b7
+    DATABRICKS_CLIENT_SECRET: '{{secrets/fe-agentops-multi/oauth-client-secret}}'
+    AGENT_CONTEXT_SIGNING_KEY: '{{secrets/fe-agentops-context/signing-key}}'
+    AGENTOPS_ENVIRONMENT: fevm
+  serving_scale_to_zero: true
+  champion:
+    workload_size: Small
+    traffic_percentage: 100
+  ai_gateway:
+    safety_enabled: true
+    inference_tables_enabled: true
+    rate_limit_per_user_per_minute: 10
+    rate_limit_per_endpoint_per_minute: 100
+    usage_tracking_enabled: true
+model:
+  prompt_registry_enabled: false
+  env_pack: false
+  promote_on_registration: false
+  pip_dependency_mode: replace
+  pip_dependencies_file: configs/requirements.lock
+pipeline:
+  request_timeout_seconds: 240
+  sanity_queries:
+    pre_deployment: Explain MLflow tracing with a Databricks documentation citation.
+    deployment: Explain MLflow tracing with a Databricks documentation citation.
+smoke_test:
+  test_queries:
+    valid_query: Explain MLflow tracing for LangGraph with a Databricks documentation
+      citation.
+    grounding: Explain Auto Loader ingestion with a Databricks documentation citation.
+    short_input: '?'
