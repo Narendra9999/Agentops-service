@@ -39,6 +39,15 @@ changed registered guideline scorers use the Databricks update API while preserv
 their sampling settings. Prediction/scorer errors in individual evaluation rows
 fail the gate even when aggregate scores appear to pass.
 
+An additional native MLflow routing scorer requires exactly the workers specified
+by each scenario. A correct-looking answer without the required worker invocation
+fails. Post-deployment predictions include the ResponsesAgent execution trace ID;
+the routing scorer loads that serving trace and fails if it is unavailable, rather
+than judging the caller's HTTP span. The six gates are correctness, relevance,
+safety, cost grounding, platform evidence and routing, each at the configured
+0.8 threshold. Cost-input clarification still requires Genie delegation and omits
+numeric currency rates or monetary totals; estimates require query-backed rates.
+
 ## Documentation index recovery
 
 The original FEVM index `fevm_catalog_naren.agentops.databricks_docs_index`

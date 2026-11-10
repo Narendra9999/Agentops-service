@@ -76,8 +76,8 @@ waiting; in-flight model, retrieval or memory calls may complete.
 
 ## FEVM setup and rollout
 
-The approved Lakebase setup and endpoint/App rollout are complete (model version
-12). The deployment applied these steps:
+The initial approved Lakebase setup and endpoint/App rollout used model version
+12. The current AgentOPS pipeline is described below. Initial setup applied these steps:
 
 1. Create `agent_memory.files`, `agent_memory.file_versions` and `app_history.summaries`
    in the existing Lakebase database. No existing history is deleted.
@@ -116,10 +116,10 @@ calls. Preserve native costs and use labeled configured-rate estimates where
 native pricing is missing. Genie internal usage remains unavailable. Do not add
 remote aggregate usage again to joined trace spans.
 
-Root bundle deployment still needs the existing Jenkins placeholder render and
-matching job dependencies. Before AgentOPS rollout, extend the shared registration
-and serving jobs to inject the signing secret securely; team config alone does
-not provision it. Shared root infrastructure has not been migrated to
+Root customer-bundle deployment still needs the existing Jenkins placeholder render
+and matching job dependencies. The team-scoped FEVM pipeline uses serverless
+compute and preserves the existing endpoint secret references. Team config alone
+does not provision secrets. Shared root infrastructure has not been migrated to
 serverless. Historical validation is in the example's `VALIDATION.md`; it does not
 establish deployment of this new memory-enabled topology.
 

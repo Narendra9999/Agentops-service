@@ -62,7 +62,7 @@ def evaluate(root,model_uri,phase):
     import mlflow
     from databricks.sdk import WorkspaceClient
     from mlflow.genai.scorers import Correctness,Guidelines,RelevanceToQuery,Safety,ScorerSamplingConfig,list_scorers
-    from .evaluation import scenarios,response_text
+    from .evaluation import scenarios,response_text,scorers
     _,config=configuration(root)
     from databricks.sdk.core import Config
     client=WorkspaceClient(config=Config(http_timeout_seconds=240))
@@ -76,7 +76,9 @@ def evaluate(root,model_uri,phase):
             response=loaded.predict(payload)
         else:
             response=client.api_client.do('POST','/serving-endpoints/'+ENDPOINT+'/invocations',body=payload)
-        return {'response':response_text(response)}
+        data=response.model_dump() if hasattr(response,'model_dump') else response
+        return {'response':response_text(response),
+                'execution_trace_id':(data.get('custom_outputs') or {}).get('trace_id')}
     # Discover first and reuse this team's durable dataset across pipeline runs.
     found=mlflow.genai.datasets.search_datasets(experiment_ids=[EXPERIMENT],max_results=100)
     # Search returns metadata entities on Databricks; reload by UC name to get
@@ -88,7 +90,8 @@ def evaluate(root,model_uri,phase):
     dataset.merge_records(scenarios())
     judges={s.name:s for s in list_scorers(experiment_id=EXPERIMENT)}
     model='databricks:/'+config['evaluation']['judge_model']
-    desired=[Correctness(model=model),RelevanceToQuery(model=model),Safety(model=model)]
+    desired=[Correctness(model=model),RelevanceToQuery(model=model),Safety(model=model),
+             scorers(config['evaluation']['judge_model'])[0]]
     for scorer in config['evaluation']['domain_scorers']:
         if scorer.get('enabled',True):
             desired.append(Guidelines(name=scorer['name'],guidelines=scorer['rules'],model=model))
@@ -96,7 +99,7 @@ def evaluate(root,model_uri,phase):
         existing=judges.get(scorer.name)
         if existing is None:
             judges[scorer.name]=scorer.register(experiment_id=EXPERIMENT)
-        elif isinstance(scorer,Guidelines) and getattr(existing,'guidelines',None)!=scorer.guidelines:
+        elif scorer.name=='routing' or (isinstance(scorer,Guidelines) and getattr(existing,'guidelines',None)!=scorer.guidelines):
             # Databricks updates registered definitions in place; it does not
             # support registering another version under an existing name.
             judges[scorer.name]=scorer.update(experiment_id=EXPERIMENT,
