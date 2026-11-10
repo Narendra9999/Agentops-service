@@ -184,7 +184,10 @@ import ssl
 def history_db():
     import pg8000.dbapi
     w = WorkspaceClient()
-    endpoint = os.environ['HISTORY_POSTGRES_ENDPOINT']
+    endpoint = os.environ['HISTORY_LAKEBASE_ENDPOINT']
+    if not __import__('re').fullmatch(r'projects/[^/]+/branches/[^/]+/endpoints/[^/]+', endpoint):
+        raise ValueError('History requires a Lakebase project endpoint resource')
+    # SDK `postgres` is the Databricks Lakebase Autoscaling API.
     host = w.postgres.get_endpoint(name=endpoint).status.hosts.host
     token = w.postgres.generate_database_credential(endpoint=endpoint).token
     connection = pg8000.dbapi.connect(

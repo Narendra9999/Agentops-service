@@ -15,9 +15,9 @@ flowchart TD
     G --> S[Supervisor: Claude Sonnet 4.6]
     S -->|list files first| M[(Lakebase user memory)]
     S -->|read / write / delete tools| M
-    S -->|delegate_to_worker| K[In-process Platform knowledge: GPT-OSS]
+    S -->|platform_knowledge| K[In-process Platform knowledge: GPT-OSS]
     K --> V[Existing Databricks Docs Vector Search index]
-    S -->|delegate_to_worker| C[Existing Genie: Cost intelligence]
+    S -->|cost_estimation| C[Existing Genie: Cost intelligence]
     K --> S
     C --> S
     S --> F[finish_response]
@@ -186,3 +186,28 @@ The validation note was soft-deleted and its revision verified in Lakebase.
 Test conversations remain labeled as deployment validation in the selected user's
 history. This rollout uses the standalone ResponsesAgent entry point; the standard
 AgentOPS adapter is prepared, but root framework deployment is a separate rollout.
+
+### Response tags and usage accounting
+
+Successful ResponsesAgent responses include `custom_outputs.tags` with request
+identity and compact AgentOPS token/cost/coverage tags. These same tags are emitted
+to MLflow. Streaming completion events preserve them for App clients and inference
+payload capture; payload-table delivery still follows Databricks logging behavior.
+Read the captured response JSON rather than expecting a dedicated `tags` column.
+
+`custom_outputs.usage_metrics.by_agent_model` retains detailed per-agent/model
+accounting; `unmetered_services`, `unpriced_calls`, and `remote_workers` explain
+coverage limits. Indexed `agentops.usage.agent_model.*` trace tags are no longer
+emitted. Existing historical traces retain their original tags. Request totals
+and per-agent breakdowns describe the same calls: never add them together.
+Cached/reasoning tokens are subsets of token usage, not additional tokens.
+Provider-reported tokens and configured-rate cost estimates remain distinct;
+Genie internal calls are not claimed as fully metered.
+
+### FEVM deployment through AgentOPS
+
+See [the serverless team pipeline](deployment/README.md) for the FEVM lifecycle,
+quality gates and Lakebase connection boundary. This replaces the standalone
+FEVM registration path with the standard team `ChatModel` and shared framework
+ResponsesAgent wrapper. Earlier local database test results above are historical;
+current persistence validation uses FEVM Lakebase, with no local database setup.

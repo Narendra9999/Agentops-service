@@ -61,7 +61,7 @@ def test_request_without_model_calls_is_zero_usage():
     assert summary['estimated_cost_usd']==0 and summary['usage_status']=='complete'
 
 
-def test_exported_breakdown_respects_databricks_tag_value_limit(monkeypatch):
+def test_compact_tags_match_response_and_preserve_detailed_breakdown(monkeypatch):
     import mlflow
     from fe_multi_agent.usage import capture_request_usage, current_meter
     tags={}
@@ -76,10 +76,30 @@ def test_exported_breakdown_respects_databricks_tag_value_limit(monkeypatch):
             with agent_usage_scope(agent):
                 current_meter().on_chat_model_start({},[],run_id=run,invocation_params={'model':'system.ai.claude-sonnet-4-6'})
             current_meter().on_llm_end(response({'input_tokens':100,'output_tokens':20,'total_tokens':120}),run_id=run)
-        return Response(output=[])
+        return Response(output=[],custom_outputs={'tags':{'agentops.system_id':'test-system'}})
     result=predict(NS(settings=NS(usage_rates_per_million={})))
     assert all(len(value.encode())<=255 for value in tags.values())
     assert tags['agentops.tokens.total']=='360'
-    assert tags['agentops.usage.agent_model.0.agent']=='supervisor'
-    assert tags['agentops.usage.agent_model.2.agent']=='platform_docs'
+    assert not any(k.startswith('agentops.usage.agent_model.') for k in tags)
+    assert len(tags)<20
+    assert result.data['custom_outputs']['tags']=={'agentops.system_id':'test-system',**tags}
+    assert result.data['usage']['total_tokens']==360
+    assert [g['agent'] for g in result.data['custom_outputs']['usage_metrics']['by_agent_model']]==['supervisor','cost_estimation','platform_docs']
     assert len(result.data['custom_outputs']['usage_metrics']['by_agent_model'])==3
+
+
+def test_failed_request_still_exports_compact_usage_and_resets_meter(monkeypatch):
+    import mlflow
+    from fe_multi_agent.usage import capture_request_usage, current_meter
+    tags={}
+    monkeypatch.setattr(mlflow,'update_current_trace',lambda **kwargs:tags.update(kwargs['tags']))
+    @capture_request_usage
+    def predict(self):
+        current_meter().unmetered.add('genie')
+        raise RuntimeError('worker failed')
+    with pytest.raises(RuntimeError,match='worker failed'):
+        predict(NS(settings=NS(usage_rates_per_million={})))
+    assert tags['agentops.usage.status']=='partial'
+    assert tags['agentops.cost.status']=='unavailable'
+    assert 'agentops.cost_usd' not in tags
+    assert current_meter() is None

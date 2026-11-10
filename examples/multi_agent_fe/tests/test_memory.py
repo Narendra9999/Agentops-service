@@ -79,3 +79,57 @@ def test_workspace_rejects_unsafe_paths_and_sensitive_content_before_database_ac
     for path in ['/etc/profile.md','/memories/../bob.md','/memories/a/b.txt']:
         with pytest.raises(ValueError):workspace.read_file(path)
     assert not workspace.write_file('/memories/profile.md','password = example-credential',0,'','')['written']
+
+
+@pytest.mark.parametrize('tool_name,worker_id', [('cost_estimation','cost_estimation'),('platform_knowledge','platform_docs')])
+def test_named_worker_tool_routes_and_preserves_results(tool_name,worker_id):
+    memory=Memory();worker=Worker()
+    class ResultWorker(Worker):
+        def invoke(self,state):
+            result=super().invoke(state)
+            result.update(genie_result={'conversation_id':'genie-test'},source_urls=['https://docs.databricks.com/'])
+            return result
+    worker=ResultWorker()
+    model=Model([('list_memory_files',{}),(tool_name,{'task':'Use current workload details'}),
+        ('write_memory_file',{'path':'/memories/workloads/batch.md','content':'# Workload facts','expected_revision':0}),
+        ('finish_response',{'answer':'Done'})])
+    result=build_memory_graph(model,{worker_id:worker},'',memory,{}).invoke({'messages':[HumanMessage(content='Workload question')]})
+    assert len(worker.calls)==1
+    assert result['completed']==[worker_id]
+    assert {'cost_estimation','platform_knowledge'}<=set(model.bindings[1][0])
+    assert 'delegate_to_worker' not in model.bindings[1][0]
+    if worker_id=='cost_estimation':
+        assert result['genie_result']['conversation_id']=='genie-test'
+        assert memory.calls[-1][1][-1]=='Use workload quantities and verified rates.'
+    else:
+        assert 'https://docs.databricks.com/' in result['messages'][-1].content
+
+
+@pytest.mark.parametrize('bad_call', [('cost_estimation',{}),('cost_estimation',{'task':' '}),('invented_tool',{})])
+def test_invalid_tool_call_can_be_corrected_without_invoking_worker(bad_call):
+    worker=Worker()
+    model=Model([('list_memory_files',{}),bad_call,('cost_estimation',{'task':'Estimate workload costs'}),
+        ('cost_estimation',{'task':'Duplicate request'}),('finish_response',{'answer':'Done'})])
+    result=build_memory_graph(model,{'cost_estimation':worker},'',Memory(),{}).invoke({'messages':[HumanMessage(content='Cost')]})
+    assert result['messages'][-1].content=='Done'
+    assert len(worker.calls)==1
+    errors=[json.loads(m.content)['error'] for m in result['messages'] if m.type=='tool' and 'error' in json.loads(m.content)]
+    assert len(errors)==2
+
+
+def test_parallel_worker_batch_is_corrected_without_executing_either_call():
+    cost=Worker();platform=Worker()
+    class ParallelModel(Model):
+        def invoke(self,messages):
+            if len(self.prompts)==1:
+                self.prompts.append(messages)
+                return AIMessage(content='',tool_calls=[
+                    {'id':'cost-call','name':'cost_estimation','args':{'task':'Cost inputs'}},
+                    {'id':'docs-call','name':'platform_knowledge','args':{'task':'Serverless jobs'}}])
+            return super().invoke(messages)
+    model=ParallelModel([('list_memory_files',{}),('cost_estimation',{'task':'Cost inputs'}),
+        ('platform_knowledge',{'task':'Serverless jobs'}),('finish_response',{'answer':'Done'})])
+    result=build_memory_graph(model,{'cost_estimation':cost,'platform_docs':platform},'',Memory(),{}).invoke({'messages':[HumanMessage(content='Cost and docs')]})
+    assert len(cost.calls)==len(platform.calls)==1
+    errors=[m for m in result['messages'] if m.type=='tool' and m.tool_call_id in {'cost-call','docs-call'}]
+    assert len(errors)==2 and all('No calls in this batch were executed' in m.content for m in errors)

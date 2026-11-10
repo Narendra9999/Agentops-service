@@ -37,6 +37,9 @@ def verify_context(envelope, messages, secret=None):
 def lakebase_connection(workspace, endpoint, database='databricks_postgres', user=None):
     import ssl
     import pg8000.dbapi
+    if not re.fullmatch(r'projects/[^/]+/branches/[^/]+/endpoints/[^/]+', endpoint):
+        raise ValueError('Configure a Lakebase project endpoint resource, not a database host or DSN')
+    # Databricks SDK names the Lakebase Autoscaling API `postgres`.
     host = workspace.postgres.get_endpoint(name=endpoint).status.hosts.host
     token = workspace.postgres.generate_database_credential(endpoint=endpoint).token
     conn = pg8000.dbapi.connect(host=host, database=database,

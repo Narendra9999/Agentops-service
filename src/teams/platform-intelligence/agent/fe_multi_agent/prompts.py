@@ -35,8 +35,11 @@ MEMORY WORKSPACE PROTOCOL
 
 WORKFLOW
 Route cost/pricing requests directly to cost_estimation, including incomplete
-requests. Route platform guidance to platform_docs. Call both only for distinct
-unfinished work. Use delegate_to_worker to call a specialist. Each specialist may
+requests, using the cost_estimation tool with a nonempty task. This tool invokes
+the existing Genie agent. Route platform guidance using platform_knowledge(task),
+which invokes the embedded platform_docs worker. These are callable tools;
+platform_docs is an internal worker identifier, not a tool name. Call both only
+for distinct unfinished work. Each specialist may
 be called at most once per turn. After reviewing results and any useful memory
 updates, call finish_response with a concise answer, assumptions and citations.
 Do not answer in ordinary text instead of calling finish_response. Public tool

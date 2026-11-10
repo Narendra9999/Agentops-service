@@ -2,6 +2,7 @@
 from copy import deepcopy
 import os
 import json
+import time
 from pathlib import Path
 
 import mlflow
@@ -52,7 +53,19 @@ class ChatModel(ResponsesAgent):
     def predict(self, request):
         # Apply existing AgentOPS pre/post guardrails around the entire graph.
         # No shared _request_context across concurrent serving requests.
-        return _GuardedTurn(self.config, self.graph_agent).predict(request)
+        start=time.monotonic()
+        turn=_GuardedTurn(self.config, self.graph_agent)
+        response=turn.predict(request)
+        custom=dict(response.custom_outputs or {})
+        active=mlflow.get_current_active_span()
+        custom.setdefault('trace_id', active.trace_id if active else mlflow.get_last_active_trace_id())
+        tags={**turn.default_tags, **custom.get('tags', {}),
+              'agentops.latency_ms':str(round((time.monotonic()-start)*1000,2)),
+              'agentops.thread_id':str(custom.get('thread_id',''))}
+        custom['tags']=tags
+        response.custom_outputs=custom
+        mlflow.update_current_trace(tags=tags)
+        return response
 
     def predict_stream(self, request):
         # Public activity streams immediately; final output/Genie tables/usage are

@@ -4,6 +4,28 @@
 
 # Validation record
 
+## Named supervisor worker tools — version 13
+
+- Registration run `776100159881145`: SUCCESS; model version **13**,
+  `models:/m-e60c7a1259534c1f92cc54d2ba21b7c0`.
+- `fe-platform-agent-team`: READY / NOT_UPDATING, serving version 13.
+- Explicit supervisor tools: `cost_estimation(task)` invokes existing Genie;
+  `platform_knowledge(task)` invokes the embedded documentation worker.
+  Memory-first behavior remains; invalid tool calls receive corrective feedback.
+- Local routing, memory, prompt and contract checks: **30 passed**.
+- Live checks, all trace state OK:
+  - Memory write: `tr-dd3f22f7954da116be3c7c25545d090b`.
+  - New-session recall: `tr-2328859dccc509ce2182e75b54f3aa9d`.
+  - Platform tool and retrieval: `tr-95b21402c21ea04ea9bb316617649b2f`.
+  - Cost tool and Genie invocation: `tr-666ef655b39748918dddb97beeb06fb3`.
+- Cost check observed `list_memory_files`, `read_memory_file`, `cost_estimation`,
+  `genie_query`, and `finish_response`; no numerical quote was requested.
+- Existing App health returned HTTP 200. No App source change or redeployment
+  was required; it uses the updated endpoint. This check does not validate
+  numerical estimate accuracy or replay the failed user's complete conversation.
+- Version 12 remains the previous rollback reference. Detailed evidence is in
+  ignored `validation-results/named-worker-tools-v13.json`.
+
 ## Live memory-enabled FEVM rollout — version 12
 
 - Registration run `930618086547803`: SUCCESS; registered model version **12**,

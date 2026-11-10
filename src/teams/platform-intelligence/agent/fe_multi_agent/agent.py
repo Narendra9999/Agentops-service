@@ -68,9 +68,10 @@ class PlatformEngineeringAgent(ResponsesAgent):
             from .memory import verify_context
             application_context=verify_context((request.custom_inputs or {}).get('application_context') or {},messages)
         graph = build_graph(self.settings,workspace,prompts,execution,observer,application_context)
-        mlflow.update_current_trace(tags={"agentops.execution_id": execution.execution_id,
+        trace_tags = {"agentops.execution_id": execution.execution_id,
                                          "agentops.system_id": "fe-platform-engineering",
-                                         "agentops.observer_enabled": str(self.settings.observer_enabled).lower()})
+                                         "agentops.observer_enabled": str(self.settings.observer_enabled).lower()}
+        mlflow.update_current_trace(tags=trace_tags)
         scope = observer.agent("platform_team", execution.execution_id, span_name="workflow.execution", span_type="CHAIN") if observer else nullcontext()
         with scope:
             result = graph.invoke({"messages": messages}, config={"recursion_limit": self.settings.max_steps, "callbacks": [current_meter()]})
@@ -82,7 +83,7 @@ class PlatformEngineeringAgent(ResponsesAgent):
         return ResponsesAgentResponse(
             output=[self.create_text_output_item(text=str(text), id=str(uuid.uuid4()))],
             custom_outputs={"execution_id": execution.execution_id, "trace_id": trace_id,
-                            "genie_result": result.get("genie_result")},
+                            "genie_result": result.get("genie_result"), "tags": trace_tags},
         )
 
     def predict_stream(self, request):

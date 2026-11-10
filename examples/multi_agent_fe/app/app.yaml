@@ -6,7 +6,7 @@ env:
     value: "4384417075366092"
   - name: WORKSPACE_ID
     value: "7474644082064164"
-  - name: HISTORY_POSTGRES_ENDPOINT
+  - name: HISTORY_LAKEBASE_ENDPOINT
     value: projects/fe-agentops-multi/branches/production/endpoints/primary
   - name: AGENT_MEMORY_ENABLED
     value: "true"

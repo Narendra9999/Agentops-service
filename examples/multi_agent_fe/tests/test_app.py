@@ -241,7 +241,7 @@ def test_transport_preserves_final_response_usage_without_duplicating_output(cli
     usage={'input_tokens':12,'output_tokens':3,'total_tokens':15}
     chunks=[{'type':'response.output_item.done','item':{'id':'answer','type':'message'}},
             {'type':'response.completed','response':{'usage':usage,'output':[{'id':'answer'}],
-             'custom_outputs':{'usage_metrics':{'total_tokens':15}}}}]
+             'custom_outputs':{'usage_metrics':{'total_tokens':15},'tags':{'agentops.tokens.total':'15'}}}}]
     class Response:
         encoding=None
         def __enter__(self): return self
@@ -257,6 +257,7 @@ def test_transport_preserves_final_response_usage_without_duplicating_output(cli
     assert result['usage']==usage
     assert len(result['output'])==1
     assert result['custom_outputs']['usage_metrics']['total_tokens']==15
+    assert result['custom_outputs']['tags']=={'agentops.tokens.total':'15'}
 
 
 def test_rename_is_title_only_and_checks_owner_revision(client, monkeypatch):

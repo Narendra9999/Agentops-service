@@ -2,7 +2,6 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
-import json
 import logging
 import threading
 
@@ -136,6 +135,19 @@ def current_meter():
     return _meter.get()
 
 
+def summary_tags(summary):
+    """Compact request totals; detailed agent/model accounting belongs in the response."""
+    tags = usage_tags(summary, source='provider_reported', scope='observed_model_calls')
+    tags.update({'agentops.llm_requests': str(summary['llm_requests']),
+                 'agentops.cost.kind': 'configured_rate_estimate',
+                 'agentops.cost.status': summary['cost_status'],
+                 'agentops.usage.status': summary['usage_status'],
+                 'agentops.usage.missing_calls': str(summary['usage_missing_calls'])})
+    if summary['estimated_cost_usd'] is not None:
+        tags['agentops.cost_usd'] = f"{summary['estimated_cost_usd']:.8f}"
+    return tags
+
+
 def capture_request_usage(function):
     @wraps(function)
     def wrapped(self, *args, **kwargs):
@@ -152,28 +164,15 @@ def capture_request_usage(function):
             payload['usage'] = {k: summary[k] for k in ('input_tokens','output_tokens','total_tokens')}
             payload['usage']['input_tokens_details'] = {'cached_tokens': summary['cached_tokens']}
             payload['usage']['output_tokens_details'] = {'reasoning_tokens': summary['reasoning_tokens']}
-            payload['custom_outputs'] = {**(payload.get('custom_outputs') or {}), 'usage_metrics': summary}
+            custom = payload.get('custom_outputs') or {}
+            tags = {**custom.get('tags', {}), **summary_tags(summary)}
+            payload['custom_outputs'] = {**custom, 'usage_metrics': summary, 'tags': tags}
             return type(response)(**payload)
         finally:
-            summary = meter.summary()
-            tags = usage_tags(summary, source='provider_reported', scope='observed_model_calls')
-            tags.update({'agentops.llm_requests':str(summary['llm_requests']),
-                         'agentops.cost.kind':'configured_rate_estimate',
-                         'agentops.cost.status':summary['cost_status'],
-                         'agentops.usage.status':summary['usage_status'],
-                         'agentops.usage.missing_calls':str(summary['usage_missing_calls']),
-                         'agentops.usage.unmetered_services':json.dumps(summary['unmetered_services']),
-                         'agentops.usage.breakdown':'indexed_agent_model_tags'})
-            # Databricks trace tag values are limited to 255 bytes. A single JSON
-            # breakdown can reject the entire trace; keep each field independent.
-            for index, group in enumerate(summary['by_agent_model']):
-                for name, value in group.items():
-                    tags[f'agentops.usage.agent_model.{index}.{name}'] = str(value)
-            if summary['estimated_cost_usd'] is not None:
-                tags['agentops.cost_usd'] = f"{summary['estimated_cost_usd']:.8f}"
             try:
-                mlflow.update_current_trace(tags=tags)
+                mlflow.update_current_trace(tags=summary_tags(meter.summary()))
             except Exception:
                 logger.warning('Usage tag export failed',exc_info=False)
-            _meter.reset(token)
+            finally:
+                _meter.reset(token)
     return wrapped

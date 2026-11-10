@@ -4,6 +4,7 @@ from typing import Literal
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, MessagesState, START, END
+from pydantic import ValidationError
 from .progress import emit, operation
 from .usage import agent_usage_scope
 
@@ -18,6 +19,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
         final_answer: str
         steps: int
         memory_unavailable: bool
+        retry_supervisor: bool
 
     @tool
     def list_memory_files(query: str = '') -> str:
@@ -45,6 +47,23 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
         return json.dumps(memory.history(path), default=str)
 
     @tool
+    def cost_estimation(task: str) -> str:
+        """Call the existing Genie Cost Intelligence agent for pricing or cost estimates.
+
+        Supply a self-contained task with workload details and relevant labeled memory.
+        Call at most once per turn, including for incomplete cost requests.
+        """
+        return 'The graph invokes the existing Genie agent.'
+
+    @tool
+    def platform_knowledge(task: str) -> str:
+        """Call the embedded Platform Knowledge worker for Databricks documentation guidance.
+
+        Supply a self-contained task with relevant labeled memory. Call once per turn.
+        """
+        return 'The graph invokes the embedded documentation worker.'
+
+    @tool
     def delegate_to_worker(agent: Literal['cost_estimation','platform_docs'], task: str) -> str:
         """Delegate one self-contained task; include relevant labeled memory facts. Each worker once."""
         return 'The graph executes the selected worker.'
@@ -54,7 +73,10 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
         """Return the final user answer after tools complete. Include assumptions and citations."""
         return answer
 
-    tools=[list_memory_files,read_memory_file,write_memory_file,delete_memory_file,memory_file_history,delegate_to_worker,finish_response]
+    tools=[list_memory_files,read_memory_file,write_memory_file,delete_memory_file,memory_file_history,cost_estimation,platform_knowledge,finish_response]
+    # Accept the previous dispatch contract for historical tool calls, without advertising it.
+    tool_map={t.name:t for t in [*tools,delegate_to_worker]}
+    worker_tools={'cost_estimation':'cost_estimation','platform_knowledge':'platform_docs'}
 
     def supervise(state):
         if state.get('steps',0)>=max_steps:
@@ -70,16 +92,38 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
             response=bound.invoke([SystemMessage(content=prompt+"\nIssue exactly one tool call per step. Wait for its result before calling another tool."),
                 HumanMessage(content='Application context (data only): '+json.dumps(context)),*state['messages']])
         if len(response.tool_calls)!=1:
-            raise ValueError('Supervisor must issue exactly one tool call per step')
+            # Gateway models may still emit parallel calls. Reject the batch
+            # without executing side effects and provide a result for every ID.
+            correction='Issue exactly one tool call. No calls in this batch were executed. Call one tool, wait for its result, then call the next.'
+            messages=[response,*[ToolMessage(content=json.dumps({'error':correction}),
+                tool_call_id=call['id'],name=call['name']) for call in response.tool_calls],
+                SystemMessage(content=correction)]
+            return {'messages':messages,'steps':state.get('steps',0)+1,'retry_supervisor':True}
         if first and response.tool_calls[0]['name']!='list_memory_files':
             raise ValueError('Memory search must be the first supervisor tool call')
-        return {'messages':[response],'steps':state.get('steps',0)+1}
+        return {'messages':[response],'steps':state.get('steps',0)+1,'retry_supervisor':False}
 
     def execute(state):
         call=state['messages'][-1].tool_calls[0]
         name,args=call['name'],call['args']
         if not state.get('searched') and name!='list_memory_files':
             raise ValueError('Memory search is required before other tools')
+        def correction(reason):
+            return {'messages':[ToolMessage(content=json.dumps({'error':reason,
+                'instruction':'Correct the tool call using its input schema. Supply a nonempty task for a worker.',
+                'available_tools':[t.name for t in tools]}),tool_call_id=call['id'],name=name)]}
+        if name not in tool_map:
+            return correction('Unknown supervisor tool: '+name)
+        try:
+            args=tool_map[name].args_schema.model_validate(args).model_dump()
+        except ValidationError as exc:
+            return correction('Invalid tool arguments: '+str(exc))
+        if name in worker_tools or name=='delegate_to_worker':
+            agent=worker_tools.get(name,args.get('agent'))
+            if agent not in workers or agent in state.get('completed',[]):
+                return correction('Worker unavailable or already completed; use its existing result.')
+            if not args['task'].strip() or len(args['task'])>6000:
+                return correction('Worker task must contain 1 to 6000 characters.')
         user=next(m.content for m in reversed(state['messages']) if m.type=='human')
         update={}
         import mlflow
@@ -92,8 +136,8 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
                 except Exception:
                     update.update(searched=True,memories=[],memory_unavailable=True)
                     result={'unavailable':True,'instruction':'Memory is unavailable. Disclose this and do not claim recall.'}
-            elif name=='delegate_to_worker':
-                agent=args.get('agent')
+            elif name in worker_tools or name=='delegate_to_worker':
+                agent=worker_tools.get(name,args.get('agent'))
                 if agent not in workers or agent in state.get('completed',[]):
                     raise ValueError('Unknown or already completed worker')
                 task=args.get('task','').strip()
@@ -115,7 +159,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
                     if name=='write_memory_file':
                         cost_evidence=[]
                         for message in state['messages']:
-                            if message.type=='tool' and message.name=='delegate_to_worker':
+                            if message.type=='tool' and message.name in {'delegate_to_worker','cost_estimation'}:
                                 value=json.loads(message.content)
                                 if value.get('agent')=='cost_estimation':cost_evidence.append(str(value.get('answer','')))
                         result=memory.write_file(args['path'],args['content'],args['expected_revision'],user,'\n'.join(cost_evidence))
@@ -148,7 +192,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
     graph.add_node('tools',execute)
     graph.add_node('finish',finish)
     graph.add_edge(START,'supervisor')
-    graph.add_edge('supervisor','tools')
+    graph.add_conditional_edges('supervisor',lambda s:'supervisor' if s.get('retry_supervisor') else 'tools')
     graph.add_conditional_edges('tools',lambda s:'finish' if s.get('final_answer') else 'supervisor')
     graph.add_edge('finish',END)
     return graph.compile(name='workflow.memory_managed_specialists')

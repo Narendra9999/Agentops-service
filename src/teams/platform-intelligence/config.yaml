@@ -269,5 +269,6 @@ evaluation:
     type: guidelines
     enabled: true
     rules:
-    - Platform guidance cites retrieved Databricks documentation. Do not claim changes
-      to cases or infrastructure.
+    - When the response provides platform guidance, it cites retrieved Databricks documentation.
+      Cost-only input clarification does not require platform documentation. Never claim
+      changes to cases or infrastructure.
