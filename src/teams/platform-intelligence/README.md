@@ -57,18 +57,74 @@ removed. The earlier version 19 evidence below belongs to that superseded path.
 See [deployment configuration](deployment/README.md) for the original notebook
 paths, FEVM dependency settings and rollout evidence.
 
+## Configuration ownership and first deployment
+
+`config.yaml` is the AgentOPS deployment source of truth. The original
+`RegisterModel.py` loads it, merges resolved naming and the generated experiment
+ID, and packages it as MLflow `model_config`. At serving startup,
+`agent/Agent.py:ChatModel.load_context()` reads `context.model_config`, extracts
+`multi_agent.settings`, then constructs `Settings(**values)` from
+`agent/fe_multi_agent/config.py`. That dataclass supplies defaults and validation;
+it does not override the YAML with a second workspace configuration.
+
+| Concern | Configuration | Consumer |
+|---|---|---|
+| Model/endpoint identity | `agent.name`, `naming.*` | Original pipeline notebooks |
+| Lakebase file memory | `multi_agent.settings.memory_enabled`, `memory_endpoint`, `memory_ttl_days` | Supervisor memory tools |
+| Worker bindings/models | `multi_agent.settings` | `build_graph()` and worker services |
+| App conversation history/preferences | `HISTORY_LAKEBASE_ENDPOINT` in `examples/multi_agent_fe/app/app.yaml` | Authenticated FastAPI App |
+| Context signing | `pipeline` signing scope/key and `deployment.environment_vars.AGENT_CONTEXT_SIGNING_KEY` | Evaluation adapter and serving |
+| Runtime OAuth | `deployment.environment_vars.DATABRICKS_*` (secret reference only) | Serving WorkspaceClient and Lakebase |
+| Experiment | `tracing.experiment_name` | Registration creates/resolves it and publishes its ID |
+
+`session_history.enabled: false` and `long_term_memory.enabled: false` disable
+shared automatic recall, avoiding duplicate history and recall paths. They do
+not disable the App's Lakebase history or the supervisor's explicit file tools.
+App history is a separate deployment configuration, not automatically generated
+from team YAML. The supervisor accepts only signed, bounded App context.
+
+The portable experiment setting is a name, not a numeric ID. Registration
+creates or finds the named experiment, packages its ID, and passes the ID through
+job task values to evaluation and serving. The resolved ID overrides stale
+serving environment values. An existing ID remains an explicit alternative;
+configuring both a name and ID is rejected.
+
+The fresh-launch identity is `platform_intelligence` / `fe-platform-intelligence`.
+The earlier `platform_team` / `fe-platform-agent-team` endpoint is retained.
+This FEVM validation reuses existing Lakebase, Genie, Vector Search, secrets and
+runtime identity. A new workspace must provision or bind those resources, grant
+Lakebase schema/table access to the runtime principal, grant model/index/Genie
+access, and create the signing and OAuth secret references before deployment.
+Changing workspace IDs or resource names alone does not provision these services.
+The existing App remains bound to the earlier endpoint until separately updated.
+
 ## Configuration and package
+
+### One deployment entry point
+
+Only `agent/Agent.py:ChatModel` is the AgentOPS deployment entry point; its file
+and class names are the shared framework contract. `fe_multi_agent/supervisor_agent.py`
+contains `SupervisorAgent`, the internal ResponsesAgent implementation. It is
+packaged inside the same model, not registered or deployed as another agent.
+The previous lower-case `agent.py` was renamed to avoid case-only ambiguity.
+
+```text
+Original RegisterModel.py -> shared CostTrackingResponsesModel
+  -> agent/Agent.py: ChatModel (config + guardrails)
+     -> fe_multi_agent/supervisor_agent.py: SupervisorAgent (ResponsesAgent)
+        -> graph.py: build_graph (supervisor + workers + memory tools)
+```
 
 ### Where Genie is called
 
 `agent/Agent.py` is the AgentOPS entry point, not the worker implementation.
-Its `ChatModel.load_context()` constructs `PlatformEngineeringAgent`; `predict()`
+Its `ChatModel.load_context()` constructs `SupervisorAgent`; `predict()`
 applies request-local framework guardrails and adds response tags, while
 `predict_stream()` exposes activity and the guarded final response.
 
 ```text
 Agent.py: ChatModel
-  -> fe_multi_agent/agent.py: PlatformEngineeringAgent
+  -> fe_multi_agent/supervisor_agent.py: SupervisorAgent
   -> graph.py: build_graph
   -> memory_graph.py: supervisor calls cost_estimation(task)
   -> worker dispatcher: workers['cost_estimation'].invoke(...)
@@ -85,7 +141,7 @@ It does not silently fall back to classic Genie chat. Genie itself is an existin
 workspace resource and is not packaged or deployed with this model.
 
 - `agent/Agent.py`: standard team entry point, request-local AgentOPS guardrails.
-- `agent/fe_multi_agent/agent.py`: existing ResponsesAgent orchestration and streaming.
+- `agent/fe_multi_agent/supervisor_agent.py`: existing ResponsesAgent orchestration and streaming.
 - `memory_graph.py`: supervisor model tool calls; search is mandatory before other tools.
 - `memory.py`: scoped persistence, expiry, evidence validation and signed context verification.
 - `platform_worker.py`: in-process prebuilt LangGraph agent with `retrieve_platform_docs`.

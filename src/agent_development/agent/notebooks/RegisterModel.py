@@ -175,9 +175,8 @@ if team_name:
     with open(team_settings["team_config_path"]) as _team_file:
         import yaml
         _team_registration = yaml.safe_load(_team_file) or {}
-_configured_experiment = (_team_registration.get("tracing") or {}).get("experiment_id")
-if _configured_experiment:
-    experiment_name = mlflow.get_experiment(str(_configured_experiment)).name
+from framework.team_runtime import resolve_experiment_name
+experiment_name = resolve_experiment_name(_team_registration, experiment_name, mlflow)
 
 
 # Bind the experiment to a Unity Catalog trace location automatically for

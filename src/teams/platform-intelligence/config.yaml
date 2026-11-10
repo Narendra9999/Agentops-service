@@ -1,11 +1,11 @@
 agent:
-  name: platform_team
+  name: platform_intelligence
   version: 1.0.0
   description: Supervisor with platform knowledge and cost intelligence specialists
 naming:
   schema: agentops_multi
   audit_schema: agentops_multi_audit
-  agent_endpoint: fe-platform-agent-team
+  agent_endpoint: fe-platform-intelligence
   catalog: fevm_catalog_naren
 llm:
   endpoint: system.ai.claude-sonnet-4-6
@@ -58,20 +58,26 @@ guardrails:
     - compliance
     - quality
     min_response_length: 2
+# Automatic shared-store recall stays off: the App supplies signed Lakebase history.
 session_history:
   enabled: false
+# Supervisor explicitly curates Lakebase file memory via multi_agent.settings above.
 long_term_memory:
   enabled: false
 tracing:
-  experiment_id: "4384417075366092"
+  # Created/resolved by registration; the generated ID is passed to serving and eval.
+  experiment_name: /Shared/agentops-platform-intelligence
   uc_trace_storage_enabled: false
   default_tags:
     agentops.system_id: platform-intelligence
     agentops.pattern: langgraph_supervisor
 deployment:
   environment_vars:
+    # Explicit FEVM runtime identity; provision/rebind this and its grants per workspace.
+    DATABRICKS_HOST: 'https://fevm-classic-stable-naren.cloud.databricks.com'
+    DATABRICKS_CLIENT_ID: 'e3bcf75e-7b34-4026-8860-d5e4423ea2b7'
+    DATABRICKS_CLIENT_SECRET: '{{secrets/fe-agentops-multi/oauth-client-secret}}'
     AGENT_CONTEXT_SIGNING_KEY: '{{secrets/fe-agentops-context/signing-key}}'
-    MLFLOW_EXPERIMENT_ID: '4384417075366092'
     AGENTOPS_ENVIRONMENT: fevm
   serving_scale_to_zero: true
   champion:

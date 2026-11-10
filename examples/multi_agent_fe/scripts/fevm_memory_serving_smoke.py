@@ -18,16 +18,19 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--profile',required=True)
     parser.add_argument('--version',required=True)
+    parser.add_argument('--endpoint',default='fe-platform-agent-team')
+    parser.add_argument('--memory-endpoint',default='projects/fe-agentops-multi/branches/production/endpoints/primary')
+    parser.add_argument('--output',default='memory-serving-smoke.json')
     args=parser.parse_args()
     w=WorkspaceClient(profile=args.profile)
-    e=w.serving_endpoints.get('fe-platform-agent-team')
+    e=w.serving_endpoints.get(args.endpoint)
     if (e.state.ready.value!='READY' or e.state.config_update.value!='NOT_UPDATING'
             or e.config.served_entities[0].entity_version!=args.version):
         raise RuntimeError('Requested model version is not fully ready')
     secret=base64.b64decode(w.secrets.get_secret(scope='fe-agentops-context',key='signing-key').value).decode()
     owner='evaluation:serving-file-memory:'+str(uuid.uuid4())
-    report={'owner':owner,'version':args.version,'scenarios':{}}
-    out=Path(__file__).resolve().parents[1]/'validation-results/memory-serving-smoke.json'
+    report={'owner':owner,'version':args.version,'endpoint':args.endpoint,'scenarios':{}}
+    out=Path(__file__).resolve().parents[1]/'validation-results'/args.output
     out.parent.mkdir(exist_ok=True)
     def call(name,question):
         messages=[{'role':'user','content':question}]
@@ -37,7 +40,7 @@ def main():
         payload={'input':messages,'custom_inputs':{'application_context':sign_context(context,secret)},'stream':True}
         events=[];items=[];completed=False;custom={}
         started=time.monotonic()
-        with requests.post(w.config.host.rstrip('/')+'/serving-endpoints/fe-platform-agent-team/invocations',
+        with requests.post(w.config.host.rstrip('/')+'/serving-endpoints/'+args.endpoint+'/invocations',
                            headers=w.config.authenticate(),json=payload,stream=True,timeout=(20,240)) as response:
             response.raise_for_status()
             for raw in response.iter_lines(chunk_size=1,decode_unicode=True):
@@ -64,7 +67,7 @@ def main():
         return text,events
     text,events=call('remember','Remember our workload fact in /memories/workloads/smoke-batch.md: Our scheduled batch runs in eu-west-1. Save it for future sessions. Do not call a worker or estimate costs.')
     assert any(e.get('tool')=='write_memory_file' for e in events),'No explicit memory write observed'
-    store=MemoryWorkspace(lambda:lakebase_connection(w,'projects/fe-agentops-multi/branches/production/endpoints/primary',user=w.current_user.me().user_name),owner,'validation-reader')
+    store=MemoryWorkspace(lambda:lakebase_connection(w,args.memory_endpoint,user=w.current_user.me().user_name),owner,'validation-reader')
     assert 'eu-west-1' in store.read_file('/memories/workloads/smoke-batch.md').get('content',''),'Runtime memory write did not persist'
     text,events=call('cross_session_recall','Which region does our scheduled batch use? Read the saved memory file and answer from it. Do not call a worker.')
     assert 'eu-west-1' in text and any(e.get('tool')=='read_memory_file' for e in events)

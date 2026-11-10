@@ -51,13 +51,13 @@ def run_pair(settings, before_manifest, after_manifest, judge_model, output_dir)
     import mlflow
     import os, time, hashlib
     from mlflow.types.responses import ResponsesAgentRequest
-    from .agent import PlatformEngineeringAgent
+    from .supervisor_agent import SupervisorAgent
 
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     results = {}
     for label, manifest in (("before", before_manifest), ("after", after_manifest)):
-        agent = PlatformEngineeringAgent(replace(settings, prompt_manifest=manifest, observer_enabled=True))
+        agent = SupervisorAgent(replace(settings, prompt_manifest=manifest, observer_enabled=True))
 
         @mlflow.trace(name=f"paired_eval.{label}", span_type="AGENT")
         def predict_fn(query):

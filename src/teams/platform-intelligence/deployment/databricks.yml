@@ -16,11 +16,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden
@@ -39,11 +39,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden
@@ -64,11 +64,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden
@@ -90,11 +90,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden
@@ -116,11 +116,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden
@@ -141,11 +141,11 @@ resources:
             catalog: fevm_catalog_naren
             schema: agentops_multi
             audit_schema: agentops_multi_audit
-            agent_name: platform_team
+            agent_name: platform_intelligence
             team_name: platform-intelligence
             environment: fevm
             dependency_source: environment
-            agent_endpoint: fe-platform-agent-team
+            agent_endpoint: fe-platform-intelligence
             vs_endpoint: agentops-vs-endpoint
             vs_index: platform_docs_index
             eval_golden_table: platform_team_golden

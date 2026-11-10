@@ -28,9 +28,9 @@ def resource_types(monkeypatch):
 def test_standard_team_loader_and_existing_worker_bindings():
     from framework.team_config import load_team_settings
     settings=load_team_settings('platform-intelligence',str(ROOT))
-    assert settings['agent_name']=='platform_team'
+    assert settings['agent_name']=='platform_intelligence'
     assert settings['schema']=='agentops_multi'
-    assert settings['agent_endpoint']=='fe-platform-agent-team'
+    assert settings['agent_endpoint']=='fe-platform-intelligence'
     cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
     assert set(cfg['multi_agent']['agents'])=={'supervisor','platform_docs','cost_estimation'}
     assert not cfg['session_history']['enabled']  # App owns authenticated history.

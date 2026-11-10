@@ -15,7 +15,7 @@ from .prompts import load_prompts
 from .usage import capture_request_usage, current_meter, install_native_cost_processor
 
 
-class PlatformEngineeringAgent(ResponsesAgent):
+class SupervisorAgent(ResponsesAgent):
     """Customer-owned supervisor with cost intelligence and platform knowledge."""
     def __init__(self, settings=None):
         self.settings = settings or Settings.from_env()

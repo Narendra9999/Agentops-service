@@ -233,7 +233,7 @@ def deploy_champion(with_tags=True):
         scale_to_zero_enabled=scale_to_zero,
     )
     from framework.team_runtime import serving_environment
-    kwargs["environment_vars"] = serving_environment(bundle_root, team_name, w, agent_endpoint)
+    kwargs["environment_vars"] = serving_environment(bundle_root, team_name, w, agent_endpoint, experiment_id=mlflow_experiment_id)
     if with_tags:
         kwargs["tags"] = {"environment": environment, "framework": "agentops"}
     return agents.deploy(model_name, champion_version_resolved, **kwargs)

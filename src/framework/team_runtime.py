@@ -46,7 +46,22 @@ class TeamRuntime:
                 'execution_trace_id': (data.get('custom_outputs') or {}).get('trace_id')}
 
 
-def serving_environment(bundle_root, team_name, workspace, endpoint):
+def resolve_experiment_name(config, default_name, client):
+    """Choose a portable experiment name, or explicitly reuse an existing ID."""
+    tracing = config.get('tracing') or {}
+    name = str(tracing.get('experiment_name') or '').strip()
+    experiment_id = str(tracing.get('experiment_id') or '').strip()
+    if name and experiment_id:
+        raise ValueError('Configure tracing.experiment_name or experiment_id, not both')
+    if experiment_id:
+        experiment = client.get_experiment(experiment_id)
+        if experiment is None or experiment.lifecycle_stage != 'active':
+            raise ValueError('Configured MLflow experiment must exist and be active')
+        return experiment.name
+    return name or default_name
+
+
+def serving_environment(bundle_root, team_name, workspace, endpoint, experiment_id=''):
     """Preserve existing runtime identity/secret references; apply team overrides."""
     from databricks.sdk.errors import NotFound
     environment = {}
@@ -60,6 +75,9 @@ def serving_environment(bundle_root, team_name, workspace, endpoint):
         with (Path(bundle_root) / 'src/teams' / team_name / 'config.yaml').open() as source:
             config = yaml.safe_load(source) or {}
         environment.update((config.get('deployment') or {}).get('environment_vars') or {})
+    # This run's registration output wins over stale endpoint/config values.
+    if experiment_id:
+        environment['MLFLOW_EXPERIMENT_ID'] = str(experiment_id)
     return environment
 
 

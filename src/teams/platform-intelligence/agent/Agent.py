@@ -8,7 +8,7 @@ from pathlib import Path
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from framework.agent_base import AgentOPSBase
-from fe_multi_agent.agent import PlatformEngineeringAgent, stream_prediction
+from fe_multi_agent.supervisor_agent import SupervisorAgent, stream_prediction
 from fe_multi_agent.config import Settings
 
 
@@ -44,7 +44,7 @@ class ChatModel(ResponsesAgent):
         values = dict(block.get('settings') or {})
         values['prompt_manifest'] = str(Path(__file__).resolve().parent.parent / 'configs/prompts.json')
         values['experiment_id'] = os.getenv('MLFLOW_EXPERIMENT_ID') or self.config.get('tracing', {}).get('experiment_id', '')
-        self.graph_agent = PlatformEngineeringAgent(Settings(**values))
+        self.graph_agent = SupervisorAgent(Settings(**values))
         self.graph_agent.settings.validate()
         self.graph_agent.load_context(context)
         mlflow.langchain.autolog()

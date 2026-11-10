@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 from framework.team_runtime import TeamRuntime, candidate_model_uri, serving_environment
+from framework.team_runtime import resolve_experiment_name
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -12,6 +13,46 @@ def test_default_request_needs_no_team_or_secret():
     runtime = TeamRuntime(ROOT, '')
     assert runtime.request('Hello') == {'input':[{'role':'user','content':'Hello'}]}
     assert not runtime.enabled
+
+
+def test_experiment_name_requires_no_preexisting_id():
+    client = SimpleNamespace(get_experiment=lambda _: pytest.fail('ID lookup not expected'))
+    assert resolve_experiment_name({'tracing': {'experiment_name': '/Shared/new-agent'}}, '/fallback', client) == '/Shared/new-agent'
+    assert resolve_experiment_name({}, '/fallback', client) == '/fallback'
+
+
+def test_explicit_experiment_id_and_conflicting_settings():
+    client = SimpleNamespace(get_experiment=lambda _: SimpleNamespace(name='/existing', lifecycle_stage='active'))
+    assert resolve_experiment_name({'tracing': {'experiment_id': '123'}}, '/fallback', client) == '/existing'
+    with pytest.raises(ValueError, match='not both'):
+        resolve_experiment_name({'tracing': {'experiment_id': '123', 'experiment_name': '/new'}}, '/fallback', client)
+    client.get_experiment = lambda _: None
+    with pytest.raises(ValueError, match='exist and be active'):
+        resolve_experiment_name({'tracing': {'experiment_id': '123'}}, '/fallback', client)
+
+
+def test_registration_experiment_overrides_stale_serving_destination(monkeypatch):
+    import sys
+    from types import ModuleType
+    errors = ModuleType('databricks.sdk.errors')
+    errors.NotFound = type('NotFound', (Exception,), {})
+    monkeypatch.setitem(sys.modules, 'databricks.sdk.errors', errors)
+    entity = SimpleNamespace(environment_vars={'MLFLOW_EXPERIMENT_ID': 'old', 'KEEP': 'value'})
+    workspace = SimpleNamespace(serving_endpoints=SimpleNamespace(get=lambda _: SimpleNamespace(config=SimpleNamespace(served_entities=[entity]))))
+    env = serving_environment(ROOT, '', workspace, 'endpoint', experiment_id='new')
+    assert env == {'MLFLOW_EXPERIMENT_ID': 'new', 'KEEP': 'value'}
+
+
+def test_first_deployment_sets_experiment_without_existing_endpoint(monkeypatch):
+    import sys
+    from types import ModuleType
+    errors = ModuleType('databricks.sdk.errors')
+    errors.NotFound = type('NotFound', (Exception,), {})
+    monkeypatch.setitem(sys.modules, 'databricks.sdk.errors', errors)
+    def missing(_):
+        raise errors.NotFound('not deployed')
+    workspace = SimpleNamespace(serving_endpoints=SimpleNamespace(get=missing))
+    assert serving_environment(ROOT, '', workspace, 'new-endpoint', experiment_id='created') == {'MLFLOW_EXPERIMENT_ID': 'created'}
 
 
 def test_team_memory_requests_use_evaluation_owner_and_bound_signature(monkeypatch):
