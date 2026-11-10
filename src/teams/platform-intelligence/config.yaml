@@ -25,6 +25,9 @@ multi_agent:
     docs_index: fevm_catalog_naren.agentops_multi.platform_docs_index
     platform_model: system.ai.gpt-oss-120b
     memory_enabled: true
+    # Playground/direct requests can query workers without accessing persistent memory.
+    # A supplied context must always pass signature/expiry/message verification.
+    unsigned_context_policy: stateless
     memory_endpoint: projects/fe-agentops-multi/branches/production/endpoints/primary
     memory_ttl_days: 90
   agents:

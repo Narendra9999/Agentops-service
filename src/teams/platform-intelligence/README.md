@@ -104,6 +104,20 @@ The existing App remains bound to the earlier endpoint until separately updated.
 
 ## Configuration and package
 
+### Playground and direct queries
+
+`multi_agent.settings.unsigned_context_policy: stateless` allows Playground and
+ordinary Responses API callers to query the supervisor and workers without a
+signed App envelope. Those turns use only supplied conversation messages, with
+no Lakebase memory tools or persisted App history. The runtime settings are
+copied per request so concurrent signed App requests retain persistent memory.
+Responses report `custom_outputs.memory.mode` and trace tag `agentops.memory.mode`.
+
+When `custom_inputs.application_context` is present, signature, expiry, owner
+and exact-message checks always apply; invalid envelopes never fall back to
+stateless execution. An unsigned `owner_id` cannot select a memory namespace.
+Set the policy to `reject` to require signed context for every request instead.
+
 ### One deployment entry point
 
 Only `agent/Agent.py:ChatModel` is the AgentOPS deployment entry point; its file

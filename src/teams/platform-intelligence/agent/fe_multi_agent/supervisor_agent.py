@@ -63,14 +63,20 @@ class SupervisorAgent(ResponsesAgent):
             messages.append({"role": data["role"], "content": content})
         if not messages or messages[-1]["role"] != "user":
             raise ValueError("A final user message is required")
-        application_context = None
-        if self.settings.memory_enabled:
-            from .memory import verify_context
-            application_context=verify_context((request.custom_inputs or {}).get('application_context') or {},messages)
-        graph = build_graph(self.settings,workspace,prompts,execution,observer,application_context)
+        from .memory import resolve_memory_context
+        turn_settings, application_context, memory_mode = resolve_memory_context(
+            self.settings, request.custom_inputs, messages)
+        if memory_mode == 'stateless':
+            prompts = {**prompts, 'supervisor': prompts['supervisor'] +
+                '\nThis request has no authenticated memory context. Persistent memory and '
+                'App history are unavailable. Use only the supplied conversation and worker '
+                'results. Do not call memory tools or claim to recall, save, or delete memory. '
+                'If asked to manage memory, explain that the authenticated App is required.'}
+        graph = build_graph(turn_settings,workspace,prompts,execution,observer,application_context)
         trace_tags = {"agentops.execution_id": execution.execution_id,
                                          "agentops.system_id": "fe-platform-engineering",
-                                         "agentops.observer_enabled": str(self.settings.observer_enabled).lower()}
+                                         "agentops.observer_enabled": str(self.settings.observer_enabled).lower(),
+                                         "agentops.memory.mode": memory_mode}
         mlflow.update_current_trace(tags=trace_tags)
         scope = observer.agent("platform_team", execution.execution_id, span_name="workflow.execution", span_type="CHAIN") if observer else nullcontext()
         with scope:
@@ -83,6 +89,7 @@ class SupervisorAgent(ResponsesAgent):
         return ResponsesAgentResponse(
             output=[self.create_text_output_item(text=str(text), id=str(uuid.uuid4()))],
             custom_outputs={"execution_id": execution.execution_id, "trace_id": trace_id,
+                            "memory": {"mode": memory_mode, "persistent": memory_mode == 'persistent'},
                             "genie_result": result.get("genie_result"), "tags": trace_tags},
         )
 
@@ -98,6 +105,9 @@ def stream_prediction(predict, request):
     from mlflow.types.responses import ResponsesAgentStreamEvent
     events = queue.Queue()
     stopped = threading.Event()
+    response_id = str(uuid.uuid4())
+    progress_response = {'id': response_id, 'object': 'response',
+                         'status': 'in_progress', 'output': []}
 
     def publish(activity):
         if stopped.is_set():
@@ -128,15 +138,19 @@ def stream_prediction(predict, request):
             try:
                 kind, data = events.get(timeout=2)
             except queue.Empty:
-                yield ResponsesAgentStreamEvent(type='response.in_progress')
+                yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response)
                 continue
             if kind == 'activity':
-                yield ResponsesAgentStreamEvent(type='response.in_progress', custom_outputs={'activity': data})
+                yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response,
+                                                custom_outputs={'activity': data})
             elif kind == 'result':
-                for item in data.output:
-                    yield ResponsesAgentStreamEvent(type='response.output_item.done', item=item,
+                for index, item in enumerate(data.output):
+                    yield ResponsesAgentStreamEvent(type='response.output_item.done', item=item, output_index=index,
                                                     custom_outputs=data.custom_outputs)
-                yield ResponsesAgentStreamEvent(type='response.completed', response=data.model_dump(exclude_none=True), custom_outputs=data.custom_outputs)
+                complete = {'id': response_id, 'object': 'response', 'status': 'completed',
+                            **data.model_dump(exclude_none=True)}
+                yield ResponsesAgentStreamEvent(type='response.completed', response=complete,
+                                                custom_outputs=data.custom_outputs)
                 return
             else:
                 mlflow.update_current_trace(state="ERROR")

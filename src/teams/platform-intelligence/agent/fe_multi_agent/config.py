@@ -14,6 +14,7 @@ class Settings:
     docs_text_column: str = "chunk_text"
     docs_url_column: str = "url"
     memory_enabled: bool = False
+    unsigned_context_policy: str = "reject"
     memory_endpoint: str = ""
     memory_ttl_days: int = 90
     cost_endpoint: str = ""
@@ -45,6 +46,8 @@ class Settings:
         return cls(**values)
 
     def validate(self):
+        if self.unsigned_context_policy not in {'reject', 'stateless'}:
+            raise ValueError('unsigned_context_policy must be reject or stateless')
         if self.model_transport not in {"ai_gateway", "model_serving"}:
             raise ValueError("model_transport must be ai_gateway or model_serving")
         if self.model_transport == "ai_gateway":

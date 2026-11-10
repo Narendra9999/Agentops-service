@@ -33,6 +33,20 @@ def verify_context(envelope, messages, secret=None):
     return data
 
 
+def resolve_memory_context(settings, custom_inputs, messages):
+    """Allow an explicit stateless mode; never downgrade an invalid signature."""
+    from dataclasses import replace
+    if not settings.memory_enabled:
+        return settings, None, 'disabled'
+    custom_inputs = custom_inputs or {}
+    if 'application_context' in custom_inputs:
+        context = verify_context(custom_inputs['application_context'] or {}, messages)
+        return settings, context, 'persistent'
+    if settings.unsigned_context_policy == 'stateless':
+        return replace(settings, memory_enabled=False), None, 'stateless'
+    raise ValueError('Signed application context is required for persistent memory')
+
+
 @contextmanager
 def lakebase_connection(workspace, endpoint, database='databricks_postgres', user=None):
     import ssl
