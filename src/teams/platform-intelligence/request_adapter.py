@@ -25,3 +25,10 @@ def build_request(query, owner):
                'messages_sha256': hashlib.sha256(json.dumps(
                    messages, sort_keys=True, separators=(',', ':')).encode()).hexdigest()}
     return {'input': messages, 'custom_inputs': {'application_context': sign_context(context)}}
+
+
+def build_input_example(query, config):
+    settings = config.get('multi_agent', {}).get('settings', {})
+    if settings.get('memory_enabled') and settings.get('unsigned_context_policy', 'reject') != 'stateless':
+        return None  # Signed-only teams must obtain fresh context from their authenticated App.
+    return {'input': [{'role': 'user', 'content': query}]}

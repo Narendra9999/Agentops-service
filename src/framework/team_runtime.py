@@ -37,6 +37,12 @@ class TeamRuntime:
             return self.adapter.build_request(str(query), self.owner)
         return {'input': [{'role': 'user', 'content': str(query)}]}
 
+    def input_example(self, query):
+        """Reusable public example; never persist short-lived evaluation credentials."""
+        if self.adapter and hasattr(self.adapter, 'build_input_example'):
+            return self.adapter.build_input_example(str(query), self.config)
+        return {'input': [{'role': 'user', 'content': str(query)}]}
+
     def evaluation_output(self, result):
         from framework.inference import extract_response_text
         if not self.adapter:

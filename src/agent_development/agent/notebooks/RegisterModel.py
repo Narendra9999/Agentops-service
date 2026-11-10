@@ -619,8 +619,8 @@ with mlflow.start_run(run_name="agent_registration"):
         "resources": resources,
         "conda_env": conda_env,
         "artifacts": model_artifacts,
-        "input_example": team_runtime.request(
-            "Which region is recorded? Read memory only; do not call a worker."
+        "input_example": team_runtime.input_example(
+            "Briefly describe which specialist agents you can use."
         ) if team_runtime.enabled else input_example,
     }
     try:

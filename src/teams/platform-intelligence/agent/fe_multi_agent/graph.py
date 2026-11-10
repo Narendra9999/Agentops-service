@@ -88,8 +88,8 @@ def build_supervisor_graph(model, workers, prompt, execution, observer=None, max
         Decision = create_model(
             "RoutingDecision",
             next_agent=(Literal[tuple(allowed)], Field(description="Remaining worker or finish")),
-            task=(str, Field(description="Self-contained task for a remaining worker; empty for finish")),
-            answer=(str, Field(description="Final user answer when finishing; otherwise empty")),
+            task=(str, Field(default="", description="Self-contained task for a remaining worker; empty for finish")),
+            answer=(str, Field(default="", description="Final user answer when finishing; otherwise empty")),
         )
         router = model.with_structured_output(Decision)
         context = {

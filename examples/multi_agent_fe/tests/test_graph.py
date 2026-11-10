@@ -65,6 +65,28 @@ def test_finish_without_delegation():
     assert not any(w.calls for w in workers.values())
 
 
+def test_delegation_can_omit_answer_and_finish_can_omit_task():
+    _, workers, graph = setup([
+        {"next_agent": "cost_estimation", "task": "Ask for missing runtime"},
+        {"next_agent": "finish", "answer": "What is the runtime per batch?"},
+    ])
+    result = graph.invoke({"messages": [HumanMessage(content="Estimate 30 monthly runs")]})
+    assert len(workers["cost_estimation"].calls) == 1
+    assert not workers["platform_docs"].calls
+    assert result["messages"][-1].content == "What is the runtime per batch?"
+
+
+@pytest.mark.parametrize("payload", [
+    {"next_agent": "cost_estimation"},
+    {"next_agent": "finish"},
+])
+def test_missing_action_specific_field_still_rejects(payload):
+    _, workers, graph = setup([payload])
+    with pytest.raises(ValueError):
+        graph.invoke({"messages": [HumanMessage(content="Help")]})
+    assert not any(w.calls for w in workers.values())
+
+
 def test_delegation_limit_stops_repeated_worker_calls():
     _, workers, graph = setup([decision("platform_docs")], limit=1)
     result = graph.invoke({"messages": [HumanMessage(content="Explain tracing")]})

@@ -38,13 +38,8 @@ def register_model(settings, model_name, project_root, runtime_file, dependency_
         raise ValueError("Usage instrumentation requires the framework source")
     code_paths.append(str(framework))
     example={"input":[{"role":"user","content":"Explain MLflow tracing with a documentation citation."}]}
-    if settings.memory_enabled:
-        import hashlib,time,uuid
-        from .memory import sign_context
-        example['custom_inputs']={'application_context':sign_context({
-            'owner_id':'evaluation:registration:'+str(uuid.uuid4()),'conversation_id':'registration',
-            'summary':'','preferences':{},'expires_at':int(time.time())+300,
-            'messages_sha256':hashlib.sha256(json.dumps(example['input'],sort_keys=True,separators=(',',':')).encode()).hexdigest()})}
+    if settings.memory_enabled and settings.unsigned_context_policy != 'stateless':
+        example = None  # Never publish expiring signed context as a reusable example.
     with mlflow.start_run(run_name="register-platform-agent-team"), mlflow.start_span(name="model.registration"):
         mlflow.update_current_trace(tags={"fe.eval_phase": "packaging"})
         info = mlflow.pyfunc.log_model(

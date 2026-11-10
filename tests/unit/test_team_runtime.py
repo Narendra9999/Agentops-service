@@ -67,6 +67,16 @@ def test_team_memory_requests_use_evaluation_owner_and_bound_signature(monkeypat
         verify_context(request['custom_inputs']['application_context'],[{'role':'user','content':'Modified'}])
 
 
+def test_registration_example_never_reuses_signed_evaluation_context():
+    secret = SimpleNamespace(get=lambda scope, key: 'unit-test-signing-key')
+    runtime = TeamRuntime(ROOT, 'platform-intelligence', SimpleNamespace(secrets=secret))
+    example = runtime.input_example('Hello')
+    assert example == {'input': [{'role': 'user', 'content': 'Hello'}]}
+    assert 'application_context' in runtime.request('Hello')['custom_inputs']
+    runtime.config['multi_agent']['settings']['unsigned_context_policy'] = 'reject'
+    assert runtime.input_example('Hello') is None
+
+
 def test_candidate_uses_run_version_and_legacy_fallback():
     dbutils = SimpleNamespace(jobs=SimpleNamespace(taskValues=SimpleNamespace(get=lambda **_: '21')))
     assert candidate_model_uri(dbutils,'c.s.m') == 'models:/c.s.m/21'
