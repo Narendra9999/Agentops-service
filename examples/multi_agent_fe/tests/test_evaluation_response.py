@@ -48,3 +48,23 @@ def test_unavailable_serving_trace_fails_routing_closed(monkeypatch):
     with pytest.raises(RuntimeError,match='Serving execution trace is unavailable'):
         routing(NS(info=NS(trace_id='caller')),{'agents':['cost_estimation']},
                 {'execution_trace_id':'unavailable'})
+
+
+@pytest.mark.parametrize('actual,expected,passes', [
+    (['supervisor', 'cost_estimation'], ['cost_estimation'], True),
+    (['supervisor', 'platform_docs'], ['platform_docs'], True),
+    (['supervisor', 'cost_estimation', 'platform_docs'], ['cost_estimation'], False),
+    (['supervisor'], ['cost_estimation'], False),
+    (['supervisor.tool.cost_estimation'], ['cost_estimation'], False),
+])
+def test_routing_accepts_native_worker_nodes_without_observer(actual, expected, passes):
+    from types import SimpleNamespace as NS
+    import importlib.util
+    from pathlib import Path
+    trace = NS(search_spans=lambda: [NS(name=name, attributes={}) for name in actual])
+    assert routing(trace, {'agents': expected}) is passes
+    path = Path(__file__).resolve().parents[3] / 'src/teams/platform-intelligence/scorers/routing.py'
+    spec = importlib.util.spec_from_file_location('team_routing', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.routing(trace, {'expected_output': {'agents': expected}}) is passes

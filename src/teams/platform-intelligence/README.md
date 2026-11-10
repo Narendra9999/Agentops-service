@@ -463,3 +463,14 @@ for startup responsibilities, resource declaration syntax and compatibility.
 agents. Team-specific memory questions now live in `pipeline.sanity_queries`.
 The job declares common parameters once, and both compute and model registration
 read `configs/requirements.lock`. This refactor has not yet been deployed.
+
+### Native supervisor tracing
+
+`multi_agent.settings.observer_enabled` is `false` for this team. MLflow LangGraph
+autologging captures the supervisor and worker graph nodes; the optional shared
+`AgentObserver` is not instantiated and adds no wrapper spans. Routing evaluation
+recognizes the exact native worker node names (`cost_estimation`, `platform_docs`)
+and also supports agent identity attributes in historical and memory-tool traces.
+The memory graph retains its explicit tool/worker spans, which are independent of
+AgentObserver. Memory, progress events, guardrails and usage tracking remain enabled.
+Paired evaluations respect the configured observer setting.

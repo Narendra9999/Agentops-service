@@ -15,7 +15,8 @@ multi_agent:
   ownership: customer
   settings:
     genie_space_id: 01f1d6efcecd1620b04cf487817675b7
-    observer_enabled: true
+    # Native LangGraph/MLflow spans provide the execution tree.
+    observer_enabled: false
     max_steps: 60
     platform_endpoint: ''
     cost_endpoint: ''

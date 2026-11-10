@@ -37,7 +37,9 @@ def routing(trace, expectations, outputs=None):
         if remote is None:raise RuntimeError('Serving execution trace is unavailable: '+reference)
         trace=remote
     expected=set(expectations.get('agents',[]))
-    observed={s.attributes.get('agentops.agent_id') for s in trace.search_spans()}
+    observed={identity for span in trace.search_spans()
+              for identity in (getattr(span, 'name', None),
+                               span.attributes.get('agentops.agent_id'))}
     return expected == (observed & {'cost_estimation','platform_docs'})
 
 
@@ -57,7 +59,7 @@ def run_pair(settings, before_manifest, after_manifest, judge_model, output_dir)
     root.mkdir(parents=True, exist_ok=True)
     results = {}
     for label, manifest in (("before", before_manifest), ("after", after_manifest)):
-        agent = SupervisorAgent(replace(settings, prompt_manifest=manifest, observer_enabled=True))
+        agent = SupervisorAgent(replace(settings, prompt_manifest=manifest))
 
         @mlflow.trace(name=f"paired_eval.{label}", span_type="AGENT")
         def predict_fn(query):

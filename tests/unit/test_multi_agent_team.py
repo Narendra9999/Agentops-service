@@ -89,3 +89,9 @@ def test_resources_are_topology_independent_and_deduplicated(monkeypatch):
     assert len(result)==1 and result[0].name=='worker'
     with pytest.raises(ValueError,match='declare model.resources'):
         language_model_resources({'multi_agent':{'pattern':'customer_graph'}},'unused')
+
+
+def test_supervisor_uses_native_tracing_without_optional_observer():
+    cfg = yaml.safe_load((TEAM / 'config.yaml').read_text())
+    assert cfg['multi_agent']['settings']['observer_enabled'] is False
+    assert cfg['multi_agent']['settings']['memory_enabled'] is True

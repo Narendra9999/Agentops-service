@@ -16,7 +16,11 @@ def routing(trace, expectations, outputs=None):
     expected=set((expectations.get('expected_output') or {}).get('agents',[]))
     if not expected:
         raise ValueError('Routing requires expected_output.agents')
-    observed={s.attributes.get('agentops.agent_id') for s in trace.search_spans()}
+    # Native LangGraph nodes identify executed workers without observer wrappers.
+    # Retain attribute support for historical traces and the memory tool graph.
+    observed={identity for span in trace.search_spans()
+              for identity in (getattr(span, 'name', None),
+                               span.attributes.get('agentops.agent_id'))}
     return expected == (observed & {'cost_estimation','platform_docs'})
 
 
