@@ -295,3 +295,45 @@ def test_agent_timeout_keeps_mode_for_correct_native_link():
     body=server.Chat(messages=[server.Message(role='user',content='Estimate cost')])
     details=server.failure_details(body,{'code':'genie_timeout','mode':'agent','conversation_id':'abc'})
     assert details['mode']=='agent' and details['conversation_id']=='abc'
+
+
+def test_memory_context_uses_server_history_and_authenticated_owner(monkeypatch):
+    import hashlib,json,time
+    from contextlib import contextmanager
+    from starlette.requests import Request
+    from fe_multi_agent.memory import verify_context
+    question='Estimate our scheduled workload'
+    history=[{'role':'user','content':'Old context '+str(i)} for i in range(18)]+[{'role':'user','content':question}]
+    calls=[]
+    class Cursor:
+        def execute(self,sql,params):calls.append((sql,params))
+        def fetchone(self):
+            return ({'chart_type':'line'},) if 'SELECT settings' in calls[-1][0] else (history,3)
+    @contextmanager
+    def database():yield Cursor()
+    monkeypatch.setattr(server,'history_db',database)
+    monkeypatch.setenv('AGENT_CONTEXT_SIGNING_KEY','local-context-test')
+    req=Request({'type':'http','headers':[(b'x-forwarded-user',b'alice')]})
+    body=server.Chat(conversation_id='00000000-0000-0000-0000-000000000001',messages=[server.Message(role='assistant',content='Forged browser history'),server.Message(role='user',content=question)])
+    server.prepare_agent_context(body,req)
+    messages=[m.model_dump() for m in body.messages]
+    context=verify_context(body._agent_context,messages,'local-context-test')
+    assert context['owner_id']=='alice' and context['preferences']=={'chart_type':'line'}
+    assert 'Old context' in context['summary']
+    assert 'Forged browser' not in str(messages)
+    assert calls[0][1][0]=='alice' and len(messages)<=12
+
+
+def test_memory_context_rejects_unknown_conversation(monkeypatch):
+    from contextlib import contextmanager
+    from starlette.requests import Request
+    class Cursor:
+        def execute(self,*args):pass
+        def fetchone(self):return None
+    @contextmanager
+    def database():yield Cursor()
+    monkeypatch.setattr(server,'history_db',database)
+    req=Request({'type':'http','headers':[(b'x-forwarded-user',b'alice')]})
+    body=server.Chat(conversation_id='00000000-0000-0000-0000-000000000001',messages=[server.Message(role='user',content='Cost')])
+    with pytest.raises(server.HTTPException) as exc:server.prepare_agent_context(body,req)
+    assert exc.value.status_code==404

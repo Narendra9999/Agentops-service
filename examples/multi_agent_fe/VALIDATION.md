@@ -6,6 +6,26 @@
 
 # Validation record
 
+## Agent-managed memory and embedded Platform knowledge — current validation
+
+- Agent/App suite with disposable local PostgreSQL: **69 passed, 1 skipped**.
+- Framework resource/text contracts: **7 passed**. Chart checks: **9 passed**.
+- Real PostgreSQL verified cross-session recall, owner isolation, pending-pattern
+  exclusion, explicit approval, expiry, deletion/audit and concurrent deduplication.
+  This database was temporary and local, not FEVM Lakebase.
+- FEVM run **280309112395701** passed with real Claude/GPT-OSS and the existing
+  documentation index. Trace: `tr-58fe2655f10425a5400b259c5143abb2`.
+  Memory storage was a process-local stub: model tool use and recall across new
+  graph instances passed; this is not evidence of durable FEVM memory.
+- Gateway rejected `parallel_tool_calls`; the graph enforces one call per step
+  without that unsupported request parameter. Required tool choice was verified.
+- Persistent FEVM memory tables, secret scope/ACL and runtime grants were blocked
+  by automatic approval review pending explicit approval. They have not run.
+  No new worker endpoint or memory-enabled model/App rollout has occurred.
+- The current implementation uses structured facts/pattern records. A Markdown
+  file-curation interface is a separate interface decision; the storage backend
+  can persist file paths/content/versions in Lakebase or use actual Volume files.
+
 ## Supervisor-only AgentOPS integration — current local validation
 
 - Agent/App suite: **60 passed, 1 skipped** (optional local database coverage).

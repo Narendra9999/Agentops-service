@@ -8,3 +8,7 @@ env:
     value: "7474644082064164"
   - name: HISTORY_POSTGRES_ENDPOINT
     value: projects/fe-agentops-multi/branches/production/endpoints/primary
+  - name: AGENT_MEMORY_ENABLED
+    value: "true"
+  - name: AGENT_CONTEXT_SIGNING_KEY
+    valueFrom: context-signing-key

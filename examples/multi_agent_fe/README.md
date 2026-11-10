@@ -4,11 +4,12 @@ The implementation now lives under
 [`src/teams/platform-intelligence`](../../src/teams/platform-intelligence/README.md)
 and uses the standard AgentOPS `agent/Agent.py` / `ChatModel` contract.
 
-Only the existing supervisor **ResponsesAgent** is packaged and deployed. It calls
-two existing workers by configuration: Platform knowledge (ResponsesAgent endpoint)
-and Cost intelligence (Genie STANDARD agent or ResponsesAgent endpoint). The case
-worker, mutation tools and approval UI are removed. Lakebase App conversation
-history and preferences remain independent and unchanged.
+The default deployment packages the existing supervisor **ResponsesAgent** and
+Platform knowledge worker together. Cost intelligence calls the existing Genie
+STANDARD agent. Lakebase supplies explicit supervisor memory tools plus App
+conversation history, bounded summaries and preferences. The remote knowledge
+worker option remains configurable. Persistent FEVM memory setup and rollout
+are approval-gated; see the team README for exact changes.
 
 The App retains activity events, stop, cleared message composer, conversation
 rename/history and interactive Genie charts. `model.py` is the direct ResponsesAgent
@@ -35,4 +36,4 @@ python examples/multi_agent_fe/scripts/fevm_bootstrap.py \
 See the team README for config bindings, pipeline setup, architecture, cost coverage
 and remaining deployment gaps. `FEVM_STATUS.md` and `VALIDATION.md` retain historical
 rollout evidence. Earlier three-worker versions are historical; the new team setup
-requires the existing knowledge endpoint name before real-worker deployment.
+requires the approved memory schema, signing secret and runtime grants before rollout.

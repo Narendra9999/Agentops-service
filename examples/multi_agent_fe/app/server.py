@@ -11,7 +11,7 @@ from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from requests.exceptions import Timeout
 
 app = FastAPI(title="Platform Engineering Agent Team")
@@ -25,6 +25,8 @@ class Message(BaseModel):
 
 
 class Chat(BaseModel):
+    conversation_id: UUID | None = None
+    _agent_context: dict | None = PrivateAttr(default=None)
     messages: list[Message] = Field(min_length=1, max_length=30)
     model_config = {"extra": "forbid"}
 
@@ -70,6 +72,8 @@ def validate_chat(body, request):
         raise HTTPException(422, "Only user and assistant messages are allowed")
     if body.messages[-1].role != "user":
         raise HTTPException(422, "The last message must be a user message")
+    if os.getenv('AGENT_MEMORY_ENABLED') == 'true':
+        prepare_agent_context(body, request)
 
 
 def invoke(body):
@@ -113,6 +117,8 @@ def invoke_stream(body):
     url = w.config.host.rstrip('/') + '/serving-endpoints/' + os.environ['SERVING_ENDPOINT'] + '/invocations'
     payload = {'input': [m.model_dump() for m in body.messages],
                'stream': True}
+    if body._agent_context:
+        payload['custom_inputs'] = {'application_context': body._agent_context}
     output, custom, usage, completed_received = [], {}, None, False
     with requests.post(url, headers=w.config.authenticate(), json=payload,
                        stream=True, timeout=(20, 240)) as response:
@@ -292,3 +298,42 @@ def save_preferences(body: Preferences, request: Request):
     with history_db() as cur:
         cur.execute('INSERT INTO app_history.preferences (owner_id,settings) VALUES (%s,%s::jsonb) ON CONFLICT (owner_id) DO UPDATE SET settings=excluded.settings', (owner, body.model_dump_json()))
     return body
+
+
+def prepare_agent_context(body, request):
+    """Rebuild prompt history from owner-scoped storage; sign exact request content."""
+    import hashlib
+    import hmac
+    import base64
+    owner=history_owner(request)
+    if body.conversation_id is None:
+        raise HTTPException(422,'A saved conversation is required for agent memory')
+    question=body.messages[-1].content
+    with history_db() as cur:
+        cur.execute('SELECT turns,revision FROM app_history.conversations WHERE owner_id=%s AND id=%s',(owner,str(body.conversation_id)))
+        row=cur.fetchone()
+        if not row:raise HTTPException(404,'Conversation not found')
+        turns=row[0] if isinstance(row[0],list) else json.loads(row[0])
+        history=[{'role':t['role'],'content':str(t.get('content',''))} for t in turns if t.get('role') in {'user','assistant'}]
+        if not history or history[-1]!={'role':'user','content':question}:
+            raise HTTPException(409,'Conversation changed. Reload before sending.')
+        # Bound recent context by characters as well as turn count. Preserve current question.
+        recent=[history[-1]];size=len(question)
+        for turn in reversed(history[:-1]):
+            if len(recent)>=12 or size+len(turn['content'])>20000:break
+            recent.insert(0,turn);size+=len(turn['content'])
+        if recent[0]['role']=='assistant':recent.pop(0)
+        older=history[:-len(recent)]
+        summary='Extractive conversation history (may omit details):\n'+'\n'.join(t['role']+': '+t['content'][:500] for t in older[-16:])
+        summary=summary[:6000] if older else ''
+        cur.execute('INSERT INTO app_history.summaries(conversation_id,owner_id,revision,summary) VALUES (%s,%s,%s,%s) ON CONFLICT(conversation_id) DO UPDATE SET revision=EXCLUDED.revision,summary=EXCLUDED.summary,updated_at=now() WHERE app_history.summaries.owner_id=EXCLUDED.owner_id',(str(body.conversation_id),owner,row[1],summary))
+        cur.execute('SELECT settings FROM app_history.preferences WHERE owner_id=%s',(owner,))
+        pref=cur.fetchone()
+        preferences=pref[0] if pref and isinstance(pref[0],dict) else json.loads(pref[0]) if pref else {}
+    body.messages=[Message(**m) for m in recent]
+    data={'owner_id':owner,'conversation_id':str(body.conversation_id),'summary':summary,
+          'preferences':{'chart_type':preferences.get('chart_type','bar')},'expires_at':int(time.time())+300,
+          'messages_sha256':hashlib.sha256(json.dumps(recent,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+    payload=base64.urlsafe_b64encode(json.dumps(data,separators=(',',':')).encode()).decode()
+    key=os.environ['AGENT_CONTEXT_SIGNING_KEY']
+    body._agent_context={'payload':payload,'signature':hmac.new(key.encode(),payload.encode(),hashlib.sha256).hexdigest()}

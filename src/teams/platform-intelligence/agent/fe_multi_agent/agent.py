@@ -24,6 +24,8 @@ class PlatformEngineeringAgent(ResponsesAgent):
         if "runtime" in (context.artifacts or {}):
             self.settings = Settings(**json.loads(Path(context.artifacts["runtime"]).read_text()))
             self.settings = replace(self.settings, prompt_manifest=context.artifacts["prompts"])
+        if self.settings.memory_enabled and not os.getenv('AGENT_CONTEXT_SIGNING_KEY'):
+            raise ValueError('Memory-enabled serving requires AGENT_CONTEXT_SIGNING_KEY from a secret reference')
         # Public direct-export destination avoids the serving inference processor's
         # incompatibility with platform-injected OpenTelemetry 1.45. Request/response
         # inference logging remains configured independently on the outer endpoint.
@@ -50,7 +52,6 @@ class PlatformEngineeringAgent(ResponsesAgent):
             from framework.observability.agent_observer import AgentObserver
             observer = AgentObserver(enabled=True)
         prompts = load_prompts(self.settings.prompt_manifest)
-        graph = build_graph(self.settings, workspace, prompts, execution, observer)
         messages = []
         for item in request.input:
             data = item.model_dump(exclude_none=True) if hasattr(item, "model_dump") else item
@@ -62,6 +63,11 @@ class PlatformEngineeringAgent(ResponsesAgent):
             messages.append({"role": data["role"], "content": content})
         if not messages or messages[-1]["role"] != "user":
             raise ValueError("A final user message is required")
+        application_context = None
+        if self.settings.memory_enabled:
+            from .memory import verify_context
+            application_context=verify_context((request.custom_inputs or {}).get('application_context') or {},messages)
+        graph = build_graph(self.settings,workspace,prompts,execution,observer,application_context)
         mlflow.update_current_trace(tags={"agentops.execution_id": execution.execution_id,
                                          "agentops.system_id": "fe-platform-engineering",
                                          "agentops.observer_enabled": str(self.settings.observer_enabled).lower()})

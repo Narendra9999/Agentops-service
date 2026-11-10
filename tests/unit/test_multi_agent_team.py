@@ -16,6 +16,9 @@ def resource_types(monkeypatch):
         def __init__(self, endpoint_name):self.name=endpoint_name
     class Genie:
         def __init__(self, genie_space_id):self.space=genie_space_id
+    class Index:
+        def __init__(self,index_name):self.index=index_name
+    resources.DatabricksVectorSearchIndex=Index
     resources.DatabricksServingEndpoint=Endpoint
     resources.DatabricksGenieSpace=Genie
     monkeypatch.setitem(sys.modules,'mlflow.models.resources',resources)
@@ -57,6 +60,7 @@ def test_unbound_worker_fails_before_registration(monkeypatch):
     resource_types(monkeypatch)
     from framework.model_resources import language_model_resources
     cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
+    cfg['multi_agent']['settings'].update(platform_mode='remote',platform_endpoint='REQUIRED_PLATFORM_ENDPOINT')
     with pytest.raises(ValueError,match='platform_endpoint'):
         language_model_resources(cfg,cfg['llm']['endpoint'])
 
@@ -66,3 +70,12 @@ def test_single_agent_resource_behavior_is_preserved(monkeypatch):
     from framework.model_resources import language_model_resources
     result=language_model_resources({},'single-agent-llm')
     assert len(result)==1 and isinstance(result[0],Endpoint) and result[0].name=='single-agent-llm'
+
+
+def test_in_process_worker_declares_index_without_worker_endpoint(monkeypatch):
+    resource_types(monkeypatch)
+    from framework.model_resources import language_model_resources
+    cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
+    result=language_model_resources(cfg,cfg['llm']['endpoint'])
+    assert len(result)==2 and result[0].index==cfg['multi_agent']['settings']['docs_index']
+    assert result[1].space==cfg['multi_agent']['settings']['genie_space_id']

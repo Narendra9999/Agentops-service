@@ -19,7 +19,13 @@ def check(settings, workspace):
     from langgraph.prebuilt import create_react_agent
     if "prompt" not in inspect.signature(create_react_agent).parameters:
         raise RuntimeError("Installed create_react_agent lacks prompt; validate the native worker adapter")
-    for endpoint in [settings.platform_endpoint] + ([settings.cost_endpoint] if settings.cost_endpoint else []):
+    if settings.platform_mode=='in_process':
+        index=workspace.vector_search_indexes.get_index(settings.docs_index)
+        report['resources']['docs_index']=index.status.as_dict()
+        report['ready']=report['ready'] and bool(index.status.ready)
+    if settings.memory_enabled:
+        report['memory']='Requires signed App context, initialized schema and runtime Lakebase permissions'
+    for endpoint in ([settings.platform_endpoint] if settings.platform_mode=='remote' else []) + ([settings.cost_endpoint] if settings.cost_endpoint else []):
         obj = workspace.serving_endpoints.get(endpoint)
         report["resources"][endpoint] = obj.state.as_dict()
     if not settings.cost_endpoint:

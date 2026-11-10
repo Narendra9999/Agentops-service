@@ -77,7 +77,7 @@ window.Conversations=(()=>{
  el('preferences-open').onclick=()=>el('preferences-dialog').showModal();
  el('preferences-close').onclick=()=>el('preferences-dialog').close();
  el('preferences-form').onsubmit=async e=>{e.preventDefault();try{preferences=await api('/api/preferences',{method:'PUT',body:JSON.stringify({display_name:el('profile-name').value.trim(),chart_type:el('profile-chart').value})});el('preferences-dialog').close();status('Preferences saved')}catch(e){el('preferences-error').textContent=e.message}};
- return {init,start,get chartType(){return preferences.chart_type},
+ return {init,start,get conversationId(){return current},get chartType(){return preferences.chart_type},
   async user(content){turns.push({role:'user',content});await save()},
   async answer(content,response,seconds){turns.push({role:'assistant',content,response,seconds});await save()},
   async interrupted(message){turns.push({role:'notice',content:message});await save()}

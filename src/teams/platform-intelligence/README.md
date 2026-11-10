@@ -1,156 +1,156 @@
-# Platform intelligence supervisor
+# Platform intelligence: agent-managed memory and embedded Platform knowledge
 
-Deploy the existing ResponsesAgent through AgentOPS as the `platform-intelligence`
-team. It coordinates **Platform knowledge** and **Cost intelligence**, both existing
-workers configured by reference. It does not package or deploy their implementations,
-provision a Genie space, or create a Vector Search index. Case operations are removed.
-Lakebase remains the separate App backend for authenticated conversation history and
-preferences; no remote database resources are deleted by this change.
+The existing supervisor ResponsesAgent is integrated through AgentOPS's standard
+`agent/Agent.py` / `ChatModel` and `CostTrackingResponsesModel` contracts.
+The default topology packages **supervisor + Platform knowledge in one model**.
+Cost intelligence calls the existing Genie agent in STANDARD mode; no separate
+custom worker serving endpoint is needed. A configurable remote ResponsesAgent
+worker remains available for either specialty.
 
 ```mermaid
-flowchart LR
-    UI[FastAPI App: history, rename, charts, stop] --> W[AgentOPS ResponsesAgent wrapper]
-    W --> G[AgentOPS input guardrails]
-    G --> S[Existing supervisor ResponsesAgent / LangGraph]
-    S --> K[Existing Platform knowledge ResponsesAgent endpoint]
-    S --> C[Existing Cost intelligence: Genie STANDARD or ResponsesAgent endpoint]
+flowchart TD
+    UI[Authenticated FastAPI App] <--> H[(Lakebase history / summaries / preferences)]
+    UI -->|Signed bounded context| A[AgentOPS ResponsesAgent wrapper]
+    A --> G[Input guardrails]
+    G --> S[Supervisor: Claude Sonnet 4.6]
+    S -->|search_memory first| M[(Lakebase user memory)]
+    S -->|store / approve / forget tools| M
+    S -->|delegate_to_worker| K[In-process Platform knowledge: GPT-OSS]
+    K --> V[Existing Databricks Docs Vector Search index]
+    S -->|delegate_to_worker| C[Existing Genie: Cost intelligence]
     K --> S
     C --> S
-    S --> P[AgentOPS output and artifact guardrails]
+    S --> F[finish_response]
+    F --> P[Output and artifact guardrails]
     P --> UI
-    S -. spans / tokens / configured estimates .-> M[MLflow 3]
-    UI <--> H[Existing Lakebase history / preferences]
+    S -. tool spans / tokens / configured costs .-> T[MLflow 3]
 ```
 
-## Standard team layout
+## Configuration and package
 
-- `agent/Agent.py`: `ChatModel(ResponsesAgent)`, the framework's team contract.
-- `agent/fe_multi_agent/`: the existing supervisor ResponsesAgent, customer-owned
-  graph and adapters for existing workers. No worker implementation is packaged.
-- `config.yaml`: standard AgentOPS agent/naming/deployment/guardrail/evaluation
-  settings plus `multi_agent.settings` and the registered worker identities.
+- `agent/Agent.py`: standard team entry point, request-local AgentOPS guardrails.
+- `agent/fe_multi_agent/agent.py`: existing ResponsesAgent orchestration and streaming.
+- `memory_graph.py`: supervisor model tool calls; search is mandatory before other tools.
+- `memory.py`: scoped persistence, expiry, evidence validation and signed context verification.
+- `platform_worker.py`: in-process prebuilt LangGraph agent with `retrieve_platform_docs`.
 - `configs/prompts.json`: immutable, hash-verified supervisor prompt artifact.
-- `configs/requirements.lock`: validated dependency closure for reproducibility.
-- `fixtures/`: three read-only golden scenarios and adversarial requests.
+- `config.yaml`: `platform_mode: in_process`, index/model references and memory settings.
 
-`examples/multi_agent_fe/fe_multi_agent/__init__.py` bridges local example imports
-to this canonical source. The FEVM snapshot uploader packages this source directly.
-There is no second supervisor implementation to maintain.
+Set `platform_mode: remote` and `platform_endpoint` to reuse a deployed knowledge
+ResponsesAgent instead. For cost, set `cost_endpoint` to use an existing
+ResponsesAgent endpoint; otherwise the existing `genie_space_id` is used. Worker
+models are customer-owned when invoked remotely.
 
-## Bind the existing workers
+Default model services are `system.ai.claude-sonnet-4-6` and
+`system.ai.gpt-oss-120b` through `/ai-gateway/mlflow/v1`. Existing Vector Search
+index: `fevm_catalog_naren.agentops.databricks_docs_index` (`chunk_text`, `url`).
+No index, Genie agent or worker endpoint is created by this implementation.
 
-Set `multi_agent.settings.platform_endpoint` to the existing Platform knowledge
-Model Serving endpoint **name**. Its placeholder deliberately fails validation.
-It must implement the MLflow ResponsesAgent input/output contract. It owns its
-model choice (including GPT-OSS), retrieval, prompts and worker deployment.
+## Memory behavior
 
-For Cost intelligence use either:
+Every memory-enabled turn starts with an actual supervisor `search_memory` tool
+call. The graph rejects attempts to skip it. The supervisor then chooses
+`store_memory`, `approve_memory`, `forget_memory`, `delegate_to_worker` or
+`finish_response`. Each specialist runs at most once per turn. The tool loop and
+LangGraph recursion are bounded.
 
-- `genie_space_id`: the existing Genie agent ID; `cost_endpoint` stays empty. The
-  adapter invokes agent-mode responses with `execution_mode: STANDARD` and
-  `enable_viz: true`, not classic chat. Returned query evidence feeds App charts.
-- `cost_endpoint`: an existing cost ResponsesAgent endpoint. It takes precedence
-  over the Genie ID. For interactive charts it must preserve
-  `custom_outputs.genie_result` with bounded `columns` and `rows` tables.
+Durable memory is scoped to the authenticated App user, not the serving principal
+or an email typed into chat. User facts require content and evidence quoted from
+the current user message. Cost patterns require quotes from the current cost
+worker's result and are stored as **pending**. Pending patterns are excluded from
+retrieval until the user sends `approve pattern <memory-id>`. Deletion requires
+`forget memory <memory-id>`. Facts and approved patterns expire after 90 days by
+default. Store/search/approve/delete events are audited with conversation/trace
+provenance. Historical prices never become authoritative current prices.
 
-The supervisor model remains `system.ai.claude-sonnet-4-6` through
-`/ai-gateway/mlflow/v1`. The supervisor cannot change the deployed workers' models.
-Grant its serving runtime identity access to the model service and CAN_QUERY on
-worker endpoints / the appropriate Genie agent permission. Resource declarations
-in MLflow reference existing resources for authorization; they do not create them.
-Do not put OAuth secrets in this config; retain secret references in deployment.
+Memory tools reject instruction-like or sensitive content. The current retrieval
+strategy combines text matching for approved patterns with up to eight recent
+user facts, scoped by owner and expiry. Memory is user-scoped in this version;
+project namespaces, semantic retrieval and a dedicated memory-management UI are
+future extensions. Pattern approval is explicit, not automatic self-training.
 
-## AgentOPS deployment
+A failed read allows execution to continue with a visible memory-unavailable
+notice. Failed writes return an unsuccessful tool result. Successful memory tools
+write during agent execution: cancelling a turn can leave a saved fact/proposal.
+Memory writes are not contingent on successful final-answer delivery.
 
-Use the existing AgentOPS registration/evaluation/deployment pipeline with:
+## Application context
 
-```yaml
-team_name: platform-intelligence
-team_config: src/teams/platform-intelligence/config.yaml
-skip_vector_search_setup: 'yes'
-```
+Lakebase remains the source of truth for conversation history and preferences.
+The browser supplies the conversation ID and current question; the App fetches
+history with an authenticated owner predicate and verifies the current question
+matches the latest saved turn. Browser-supplied old turns are not trusted.
 
-The standard directory is **src/teams/**. In your rendered `dab-config.json` values
-set `team_name`, `team_config`, and `vector_search_setup_skip: "yes"` accordingly.
-Retain the selected workspace, runtime identity, catalog, experiment, serving and
-Gateway settings. The supplied naming values target the existing FEVM model and
-endpoint; change them before deploying into a different environment or to a new
-endpoint. Keep the current deployment untouched while reviewing the new config.
+The App supplies at most 12 recent turns with a 20,000-character budget, plus a
+persisted extractive summary capped at 6,000 characters. The summary is a bounded
+excerpt of older turns, not a claim to retain every historical detail. Only the
+chart preference is included; display names/contact information are omitted.
+The context is signed with a dedicated secret and bound to the exact request,
+conversation, owner and five-minute expiry. The supervisor verifies it before
+memory access. Retrieved context remains data, separate from system instructions.
 
-`RegisterModel.py` uses the existing `CostTrackingResponsesModel` and stages the
-team's `Agent.py`, `fe_multi_agent` package and sibling `configs` directory. The
-framework wheel supplies AgentOPS guardrails and observability. The resource
-resolver skips fake `system.ai.*` serving-endpoint resources and does not require
-Vector Search for a supervisor-only team. Single-agent behavior is preserved.
-Team dependency mode is `replace`, avoiding legacy LangChain pins from the shared
-single-agent defaults. Install the validated dependencies on the registration job
-as well as in the serving image; model requirements alone do not update job Python.
+Public plan and tool activity stream while execution runs. Final text and Genie
+artifacts are released after AgentOPS post-guardrails. Stop cooperatively ends
+waiting; in-flight model, retrieval or memory calls may complete.
 
-The root bundle contains Jenkins-rendered `!placeholder` values, so render through
-the existing deployment workflow before `bundle validate --strict`. Its standard
-pipeline currently uses job clusters. This change does not silently migrate that
-shared infrastructure to serverless; FEVM contract validation uses serverless jobs.
+## Approval-gated FEVM setup
 
-## Runtime boundaries
+Persistent setup has **not run**. Automatic approval review requires explicit
+approval of these additive changes to the existing FEVM environment:
 
-The team adapter creates one AgentOPS guardrail/session context per request and
-runs the existing supervisor ResponsesAgent inside it. Public plan/tool activity
-streams while work runs; the final answer and Genie payload are released after
-post-guardrail checks. No private model reasoning is exposed. Streaming preserves
-`response.completed`, standard `usage`, execution trace IDs and custom outputs.
-Cancellation stops waiting cooperatively; in-flight remote calls may finish.
+1. Create `agent_memory.items`, `agent_memory.audit` and `app_history.summaries`
+   in the existing Lakebase database. No existing history is deleted.
+2. Grant the existing serving identity access only to the memory tables and audit
+   sequence; grant the existing App identity access to conversation summaries.
+3. Create isolated secret scope `fe-agentops-context`, key `signing-key`, and grant
+   the App identity READ on that scope. It contains no OAuth credentials.
+4. Attach the signing-key resource to the existing App; inject the same key via a
+   secret reference into serving. Preserve existing App resources and environment.
+5. Package a candidate with both model services and the existing retrieval index,
+   then update the existing FEVM serving endpoint/App and validate real persistence.
 
-Each request creates a graph. Workers receive the current user question plus a
-self-contained delegated task; only their final answer returns to shared graph
-state. The customer supervisor owns routing and shared context. Completed workers
-cannot be called again in the same turn. Client-supplied conversation history is
-retained. App history remains scoped to the authenticated user, not a typed email.
-Framework-side session persistence is disabled to avoid duplicating App history.
+Review the exact SQL/grants in `examples/multi_agent_fe/scripts/fevm_memory_setup.py`
+and `agent/fe_multi_agent/memory.py` before running setup. Serving environment needs
+`AGENT_CONTEXT_SIGNING_KEY={{secrets/fe-agentops-context/signing-key}}`; App config
+uses `valueFrom: context-signing-key`. Neither secret value belongs in config/git.
 
-## Evaluation and observability
+Direct memory-enabled endpoint requests require signed application context.
+Use the App for user requests. Isolated paired evaluation requires
+`FE_MULTI_EVALUATION_OWNER=evaluation:<run-id>` and the signing key, keeping each
+before/after phase in separate memory namespaces. Configure cleanup of expired
+evaluation data before recurring runs.
 
-Golden scenarios cover cost clarification, platform guidance and a combined
-request. Existing AgentOPS built-in/domain scorers and quality gates apply to final
-answers in pre/post deployment and production monitoring. The paired-evaluation
-helper additionally checks observed worker routing. Production monitoring scores
-captured traffic without replaying the supervisor or invoking workers.
+## AgentOPS deployment and boundaries
 
-Direct supervisor model calls supply provider-reported token counts. Native MLflow
-costs are preserved; missing native costs use the explicit USD-per-million rate
-card and are labeled `configured_rate_estimate`. Native per-call costs are never
-written to parent spans. Example rates must be checked against applicable pricing.
+Use `team_name: platform-intelligence`,
+`team_config: src/teams/platform-intelligence/config.yaml`, and skip index creation
+because the index already exists. Existing standard registration packages Agent.py,
+the package and configs; `language_model_resources` declares the index and Genie,
+not a separate knowledge endpoint. Runtime permissions are still required.
 
-Remote worker usage, if returned, appears separately in
-`usage_metrics.remote_workers`, with endpoint and worker trace ID. Standard response
-usage and AgentOPS cost tags describe **directly observed model calls**, not a
-claimed system total. Remote usage is not added again because server spans may
-already join the trace. Genie internal tokens remain unavailable. A native MLflow
-header may include joined remote model spans; it can therefore differ from the
-supervisor-only configured estimate.
+The supervisor owns routing, tool calls, memory policy and delegated context.
+AgentOPS supplies guardrails, evaluation, usage and tracing around this application.
+Provider-reported usage covers directly observed supervisor and embedded-worker
+calls. Preserve native costs and use labeled configured-rate estimates where
+native pricing is missing. Genie internal usage remains unavailable. Do not add
+remote aggregate usage again to joined trace spans.
 
-## Gaps to close before customer deployment
+Root bundle deployment still needs the existing Jenkins placeholder render and
+matching job dependencies. Before AgentOPS rollout, extend the shared registration
+and serving jobs to inject the signing secret securely; team config alone does
+not provision it. Shared root infrastructure has not been migrated to
+serverless. Historical validation is in the example's `VALIDATION.md`; it does not
+establish deployment of this new memory-enabled topology.
 
-| Area | Remaining validation |
-|---|---|
-| Worker binding | Set the real Platform knowledge endpoint; optionally set the cost endpoint. |
-| Authorization | Test worker calls under the actual serving identity; declarations alone do not prove access. |
-| Distributed traces | Headers are forwarded; workers must accept MLflow trace context. Otherwise follow the returned worker trace ID. |
-| Context visibility | Supervisor delegated context is visible in its spans. Worker internal context/memory requires worker-owned instrumentation and access. |
-| Cost completeness | Reconcile separate worker-reported usage and Gateway billing outside parent aggregates; unknown cost stays unavailable. |
-| Gateway policies | Verify effective PII/rate/inference controls on the selected endpoint type; prior FEVM limitations remain. |
-| Evaluation | Run all three real-worker scenarios and production monitor after binding. Mocked worker tests prove contracts, not worker answer quality. |
-| Deployment pipeline | Render/validate the root bundle and install matching job dependencies. Root shared compute is not yet serverless. |
+## Latest validation
 
-Historical FEVM validation is retained in the example's `FEVM_STATUS.md` and
-`VALIDATION.md`; those records describe prior deployed versions and are not a claim
-that this new external-worker team has already been deployed.
+The agent/App suite passed 69 tests (one optional check skipped), including a
+real disposable local PostgreSQL database; seven framework tests and nine chart
+tests passed. FEVM run `280309112395701` passed real-model tool use, recall across
+new graph instances with stub memory, and embedded documentation retrieval.
+It did not test durable FEVM memory: persistent setup remains approval-gated.
 
-## Integration validation
-
-Local checks: 60 agent/App tests passed (one optional database test skipped),
-six framework tests passed, nine chart tests passed, and browser checks covered
-history rename/reopen, composer clearing and Stop. FEVM serverless run
-`52486441721419` passed the standard ResponsesAgent packaging contract with stub
-workers, including pre/post guardrails and streamed progress. No workers were
-provisioned or deployed. See `examples/multi_agent_fe/VALIDATION.md` for evidence
-and existing root-wide validation limitations.
+Structured facts/patterns are the implemented memory interface at this stage.
+An Anthropic-style curated Markdown workspace would expose file read/create/edit/
+rename/delete tools over durable storage. A process-local stub is only a test
+double and must never be described as cross-session persistent storage.

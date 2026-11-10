@@ -38,7 +38,7 @@ function activity(phase,seconds=0){
 }
 function executionActivity(data,seconds){
  const name=agentNames[data.agent]||data.agent;
- const labels={genie_status:'Cost intelligence · Genie status',request_started:'Preparing the agent team',supervisor_started:'Supervisor · selecting next step',plan:'Plan → '+(agentNames[data.next_agent]||data.next_agent),agent_started:name+' · started',agent_completed:name+' · completed',tool_started:name+' · calling tool',tool_completed:name+' · tool returned',tool_failed:name+' · tool failed',synthesis_completed:'Supervisor · response prepared',receipt_replayed:'Case operations · existing receipt'};
+ const labels={genie_status:'Cost intelligence · Genie status',request_started:'Preparing the agent team',supervisor_started:'Supervisor · selecting next step',plan:'Plan → '+(agentNames[data.next_agent]||data.next_agent),agent_started:name+' · started',agent_completed:name+' · completed',tool_started:name+' · calling tool',tool_completed:name+' · tool returned',tool_failed:name+' · tool failed',synthesis_completed:'Supervisor · response prepared',receipt_replayed:'Existing receipt'};
  state.events.push({title:labels[data.kind]||name,message:data.message||'',tool:data.tool});
  const next={genie_status:'Await Genie query completion',request_started:'Supervisor reviews your request',supervisor_started:'Awaiting the routing decision',plan:'Call '+(agentNames[data.next_agent]||data.next_agent),agent_started:'Specialist selects its tool or response',tool_started:'Await the tool result',tool_completed:'Specialist reviews the tool result',tool_failed:'Check the failed operation',agent_completed:'Supervisor reviews the result and chooses the next step',synthesis_completed:'Deliver the final answer',receipt_replayed:'Return the original receipt without another write'};
  el('next-step').textContent=next[data.kind]||'Continue the selected operation';
@@ -96,7 +96,7 @@ el('form').onsubmit=async e=>{
  let complete=false;state.timer=setInterval(()=>{const seconds=Math.floor((Date.now()-state.started)/1000);el('duration').textContent='Elapsed time: '+seconds+'s'},1000);
  try{
   await window.Conversations.user(question);
-  const response=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages}),signal:state.controller.signal});
+  const response=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages,conversation_id:window.Conversations.conversationId}),signal:state.controller.signal});
   if(!response.ok){let detail;try{detail=(await response.json()).detail}catch{}throw Error(typeof detail==='string'?detail:'The request could not be accepted. Check your connection and try again.')}
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
   async function onEvent(block){let kind='message',parts=[];for(const line of block.split('\n')){if(line.startsWith('event:'))kind=line.slice(6).trim();if(line.startsWith('data:'))parts.push(line.slice(5).trimStart())}if(!parts.length)return;const data=JSON.parse(parts.join('\n')),seconds=data.elapsed_seconds??Math.floor((Date.now()-state.started)/1000);

@@ -4,6 +4,10 @@ bundle:
 variables:
   endpoint_name:
     description: Existing deployed ResponsesAgent endpoint name
+  context_secret_scope:
+    default: fe-agentops-context
+  context_secret_key:
+    default: signing-key
   experiment_id:
     description: MLflow experiment containing application traces
   judge_model:
@@ -20,6 +24,11 @@ resources:
           serving_endpoint:
             name: ${var.endpoint_name}
             permission: CAN_QUERY
+        - name: context-signing-key
+          secret:
+            scope: ${var.context_secret_scope}
+            key: ${var.context_secret_key}
+            permission: READ
   jobs:
     daily_monitor:
       name: fe-platform-team-monitor-${bundle.target}

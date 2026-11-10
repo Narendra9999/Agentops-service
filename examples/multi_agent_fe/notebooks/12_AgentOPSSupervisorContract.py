@@ -12,6 +12,7 @@ mlflow.set_tracking_uri('databricks')
 mlflow.set_registry_uri('databricks-uc')
 mlflow.set_experiment(experiment_id='4384417075366092')
 cfg=yaml.safe_load((root/'team/config.yaml').read_text())
+cfg['multi_agent']['settings'].update(memory_enabled=False,platform_mode='remote')
 cfg['multi_agent']['settings']['platform_endpoint']='existing-knowledge-contract-stub'
 cfg['multi_agent']['settings']['cost_endpoint']='existing-cost-contract-stub'
 cfg['multi_agent']['settings']['genie_space_id']=''

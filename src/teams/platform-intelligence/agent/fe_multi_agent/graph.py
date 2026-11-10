@@ -14,11 +14,28 @@ class Execution:
     actor: str
 
 
-def build_graph(settings, workspace, prompts, execution, observer=None):
+def build_graph(settings, workspace, prompts, execution, observer=None, application_context=None):
     from .services import ExistingResponsesWorker, ExistingGenieWorker, chat_model
-    platform = ExistingResponsesWorker(workspace, settings.platform_endpoint, "platform_docs")
+    if settings.platform_mode == 'in_process':
+        from .platform_worker import PlatformKnowledgeWorker
+        platform = PlatformKnowledgeWorker(settings, workspace)
+    else:
+        platform = ExistingResponsesWorker(workspace, settings.platform_endpoint, "platform_docs")
     cost = (ExistingResponsesWorker(workspace, settings.cost_endpoint, "cost_estimation")
             if settings.cost_endpoint else ExistingGenieWorker(workspace, settings.genie_space_id))
+    if settings.memory_enabled:
+        from .memory import MemoryStore, lakebase_connection
+        from .memory_graph import build_memory_graph
+        import mlflow
+        active=mlflow.get_current_active_span()
+        context=application_context or {}
+        if not context.get('owner_id'):
+            raise ValueError('Authenticated application context required for agent memory')
+        memory=MemoryStore(lambda: lakebase_connection(workspace,settings.memory_endpoint),
+                           context['owner_id'],context.get('conversation_id',''),
+                           active.trace_id if active else '',settings.memory_ttl_days)
+        return build_memory_graph(chat_model(settings,workspace,settings.supervisor_model),
+            {'cost_estimation':cost,'platform_docs':platform},prompts['supervisor'],memory,context)
     return build_supervisor_graph(
         chat_model(settings, workspace, settings.supervisor_model),
         {"cost_estimation": cost, "platform_docs": platform},

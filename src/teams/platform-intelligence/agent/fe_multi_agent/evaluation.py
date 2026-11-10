@@ -38,6 +38,7 @@ def scorers(judge_model):
 
 def run_pair(settings, before_manifest, after_manifest, judge_model, output_dir):
     import mlflow
+    import os, time, hashlib
     from mlflow.types.responses import ResponsesAgentRequest
     from .agent import PlatformEngineeringAgent
 
@@ -50,7 +51,18 @@ def run_pair(settings, before_manifest, after_manifest, judge_model, output_dir)
         @mlflow.trace(name=f"paired_eval.{label}", span_type="AGENT")
         def predict_fn(query):
             mlflow.update_current_trace(tags={"fe.eval_phase": label})
-            response = agent.predict(ResponsesAgentRequest(input=[{"role": "user", "content": query}]))
+            messages=[{"role":"user","content":query}]
+            custom={}
+            if settings.memory_enabled:
+                from .memory import sign_context
+                owner=os.environ.get('FE_MULTI_EVALUATION_OWNER')
+                if not owner or not owner.startswith('evaluation:'):
+                    raise ValueError('Memory evaluation requires FE_MULTI_EVALUATION_OWNER=evaluation:<isolated-run-id> and the context signing key')
+                context={'owner_id':owner+':'+label,'conversation_id':'paired-evaluation',
+                    'expires_at':int(time.time())+300,'summary':'','preferences':{},
+                    'messages_sha256':hashlib.sha256(json.dumps(messages,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+                custom={'application_context':sign_context(context)}
+            response = agent.predict(ResponsesAgentRequest(input=messages,custom_inputs=custom))
             return {"response": response_text(response)}
 
         with mlflow.start_run(run_name=f"multi-agent-{label}"):

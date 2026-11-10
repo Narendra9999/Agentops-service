@@ -3,8 +3,7 @@ import argparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.iam import AccessControlRequest, PermissionLevel
 from databricks.sdk.service.postgres import Role, RoleRoleSpec, RoleIdentityType, RoleAuthMethod
-from fe_multi_agent.config import Settings
-from fe_multi_agent.services import postgres_connection_factory
+from fe_multi_agent.memory import lakebase_connection
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--profile',required=True)
@@ -15,8 +14,8 @@ branch='projects/fe-agentops-multi/branches/production'
 w.permissions.update('database-projects','fe-agentops-multi',access_control_list=[AccessControlRequest(service_principal_name=principal,permission_level=PermissionLevel.CAN_USE)])
 if not any((r.spec and r.spec.postgres_role==principal) or (r.name or '').endswith('/roles/app-history-'+principal) for r in w.postgres.list_roles(parent=branch)):
     w.postgres.create_role(parent=branch,role_id="app-history-"+principal,role=Role(spec=RoleRoleSpec(postgres_role=principal,identity_type=RoleIdentityType.SERVICE_PRINCIPAL,auth_method=RoleAuthMethod.LAKEBASE_OAUTH_V1))).wait()
-settings=Settings(postgres_endpoint=branch+'/endpoints/primary',postgres_driver='pg8000',postgres_user=w.current_user.me().user_name)
-with postgres_connection_factory(settings,w)() as conn,conn.cursor() as cur:
+with lakebase_connection(w,branch+'/endpoints/primary',user=w.current_user.me().user_name) as conn:
+    cur=conn.cursor()
     cur.execute('CREATE SCHEMA IF NOT EXISTS app_history')
     cur.execute('CREATE TABLE IF NOT EXISTS app_history.conversations (id uuid PRIMARY KEY,owner_id text NOT NULL,title text NOT NULL,turns jsonb NOT NULL,revision integer NOT NULL,updated_at timestamptz NOT NULL DEFAULT now())')
     cur.execute('CREATE INDEX IF NOT EXISTS conversations_owner_updated ON app_history.conversations(owner_id,updated_at DESC)')

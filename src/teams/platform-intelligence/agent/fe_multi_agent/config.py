@@ -8,6 +8,14 @@ class Settings:
     model_transport: str = "ai_gateway"
     genie_space_id: str = ""
     platform_endpoint: str = ""
+    platform_mode: str = "remote"
+    platform_model: str = "system.ai.gpt-oss-120b"
+    docs_index: str = ""
+    docs_text_column: str = "chunk_text"
+    docs_url_column: str = "url"
+    memory_enabled: bool = False
+    memory_endpoint: str = ""
+    memory_ttl_days: int = 90
     cost_endpoint: str = ""
     experiment_id: str = ""
     prompt_manifest: str = ""
@@ -40,10 +48,17 @@ class Settings:
         if self.model_transport not in {"ai_gateway", "model_serving"}:
             raise ValueError("model_transport must be ai_gateway or model_serving")
         if self.model_transport == "ai_gateway":
-            for model in (self.supervisor_model,):
+            models=[self.supervisor_model]+([self.platform_model] if self.platform_mode=='in_process' else [])
+            for model in models:
                 if len(model.split('.')) != 3 or '/' in model:
                     raise ValueError("AI Gateway models must use catalog.schema.model_service names")
-        for name in ("platform_endpoint", "prompt_manifest"):
+        if self.platform_mode not in {'remote','in_process'}:
+            raise ValueError('platform_mode must be remote or in_process')
+        if self.platform_mode == 'in_process' and not self.docs_index:
+            raise ValueError('Configure docs_index for in-process retrieval')
+        if self.memory_enabled and (not self.memory_endpoint or not 1 <= self.memory_ttl_days <= 365):
+            raise ValueError('Configure memory_endpoint and memory_ttl_days (1-365)')
+        for name in (("platform_endpoint", "prompt_manifest") if self.platform_mode == 'remote' else ("prompt_manifest",)):
             value = getattr(self, name)
             if not value or "REQUIRED" in value:
                 raise ValueError(f"Configure FE_MULTI_{name.upper()}")

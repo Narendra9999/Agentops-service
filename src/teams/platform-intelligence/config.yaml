@@ -1,4 +1,3 @@
-# Only the supervisor is packaged. Worker bindings reference existing resources.
 agent:
   name: platform_team
   version: 1.0.0
@@ -19,17 +18,23 @@ multi_agent:
     model_transport: ai_gateway
     genie_space_id: 01f1d6efcecd1620b04cf487817675b7
     observer_enabled: true
-    max_steps: 30
-    platform_endpoint: REQUIRED_PLATFORM_KNOWLEDGE_ENDPOINT
+    max_steps: 60
+    platform_endpoint: ''
     cost_endpoint: ''
+    platform_mode: in_process
+    docs_index: fevm_catalog_naren.agentops.databricks_docs_index
+    platform_model: system.ai.gpt-oss-120b
+    memory_enabled: true
+    memory_endpoint: projects/fe-agentops-multi/branches/production/endpoints/primary
+    memory_ttl_days: 90
   agents:
     supervisor:
       role: supervisor
     platform_docs:
       role: worker
       display_name: Platform knowledge
-      transport: responses_agent
-      binding: settings.platform_endpoint
+      transport: in_process
+      binding: settings.docs_index
     cost_estimation:
       role: worker
       display_name: Cost intelligence
@@ -239,6 +244,9 @@ model:
   - yarl==1.25.1
   - zipp==3.21.0
   - zstandard==0.23.0
+  - pg8000==1.31.5
+  - scramp==1.4.5
+  - asn1crypto==1.5.1
 evaluation:
   scorer_mode: builtin,domain
   judge_model: databricks-gpt-oss-120b

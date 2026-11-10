@@ -6,7 +6,7 @@ from pathlib import Path
 
 def register_model(settings, model_name, project_root, runtime_file, dependency_lock):
     import mlflow
-    from mlflow.models.resources import DatabricksServingEndpoint, DatabricksGenieSpace
+    from mlflow.models.resources import DatabricksServingEndpoint, DatabricksGenieSpace, DatabricksVectorSearchIndex
     root = Path(project_root).resolve()
     lock = Path(dependency_lock)
     if not lock.is_file():
@@ -18,13 +18,14 @@ def register_model(settings, model_name, project_root, runtime_file, dependency_
     requirements = [line for line in lock.read_text().splitlines()
                     if line and not line.startswith(("#", " ", "--"))]
     # Resource declarations reference existing workers; no worker is registered.
-    resources = [DatabricksServingEndpoint(endpoint_name=settings.platform_endpoint)]
+    resources = ([DatabricksVectorSearchIndex(index_name=settings.docs_index)] if settings.platform_mode=='in_process' else [DatabricksServingEndpoint(endpoint_name=settings.platform_endpoint)])
     if settings.cost_endpoint:
         resources.append(DatabricksServingEndpoint(endpoint_name=settings.cost_endpoint))
     else:
         resources.append(DatabricksGenieSpace(genie_space_id=settings.genie_space_id))
     if settings.model_transport == "model_serving":
         resources.append(DatabricksServingEndpoint(endpoint_name=settings.supervisor_model))
+        if settings.platform_mode=='in_process':resources.append(DatabricksServingEndpoint(endpoint_name=settings.platform_model))
     # Model services are UC securables, not serving-endpoint resources. Gateway
     # EXECUTE grants are provisioned explicitly for the dedicated OAuth identity.
     package = Path(__file__).resolve().parent
@@ -36,13 +37,21 @@ def register_model(settings, model_name, project_root, runtime_file, dependency_
     if not framework.is_dir():
         raise ValueError("Usage instrumentation requires the framework source")
     code_paths.append(str(framework))
+    example={"input":[{"role":"user","content":"Explain MLflow tracing with a documentation citation."}]}
+    if settings.memory_enabled:
+        import hashlib,time,uuid
+        from .memory import sign_context
+        example['custom_inputs']={'application_context':sign_context({
+            'owner_id':'evaluation:registration:'+str(uuid.uuid4()),'conversation_id':'registration',
+            'summary':'','preferences':{},'expires_at':int(time.time())+300,
+            'messages_sha256':hashlib.sha256(json.dumps(example['input'],sort_keys=True,separators=(',',':')).encode()).hexdigest()})}
     with mlflow.start_run(run_name="register-platform-agent-team"), mlflow.start_span(name="model.registration"):
         mlflow.update_current_trace(tags={"fe.eval_phase": "packaging"})
         info = mlflow.pyfunc.log_model(
             name="agent", python_model=str(root / "model.py"), code_paths=code_paths,
             artifacts={"runtime": str(runtime_file), "prompts": settings.prompt_manifest},
             pip_requirements=requirements, resources=resources,
-            input_example={"input": [{"role": "user", "content": "Explain MLflow tracing with a documentation citation."}]},
+            input_example=example,
             registered_model_name=model_name,
         )
     return {"model_uri": info.model_uri, "version": str(info.registered_model_version)}
