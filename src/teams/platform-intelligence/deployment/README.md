@@ -31,6 +31,14 @@ scores and scorer errors fail the gate. Detailed functional validation additiona
 uses the live App and isolated Lakebase memory owners; it never truncates history
 or memory tables. No worker endpoint, Genie space or retrieval index is deployed.
 
+Pre-deployment evaluation clears the notebook's application import cache before
+loading the registered artifact and verifies that runtime imports resolve inside
+the downloaded model. It also imports the lazy Genie transport before running
+scenarios. Existing Unity Catalog datasets are reloaded by name for mutation;
+changed registered guideline scorers use the Databricks update API while preserving
+their sampling settings. Prediction/scorer errors in individual evaluation rows
+fail the gate even when aggregate scores appear to pass.
+
 ## Lakebase storage boundary
 
 Conversation history, preferences and curated Markdown memory use the existing

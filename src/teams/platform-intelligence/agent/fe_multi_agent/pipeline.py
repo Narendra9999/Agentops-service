@@ -61,13 +61,13 @@ def register(root):
 def evaluate(root,model_uri,phase):
     import mlflow
     from databricks.sdk import WorkspaceClient
-    from mlflow.genai.scorers import Correctness,Guidelines,RelevanceToQuery,Safety,list_scorers
+    from mlflow.genai.scorers import Correctness,Guidelines,RelevanceToQuery,Safety,ScorerSamplingConfig,list_scorers
     from .evaluation import scenarios,response_text
     _,config=configuration(root)
     from databricks.sdk.core import Config
     client=WorkspaceClient(config=Config(http_timeout_seconds=240))
     owner='evaluation:agentops-pipeline:'+phase+':'+str(uuid.uuid4())
-    loaded=mlflow.pyfunc.load_model(model_uri) if phase=='pre' else None
+    loaded=load_candidate(model_uri) if phase=='pre' else None
     @mlflow.trace(name='agentops.pipeline.'+phase,span_type='AGENT')
     def predict_fn(query):
         mlflow.update_current_trace(tags={'fe.eval_phase':'agentops-'+phase})
@@ -79,8 +79,12 @@ def evaluate(root,model_uri,phase):
         return {'response':response_text(response)}
     # Discover first and reuse this team's durable dataset across pipeline runs.
     found=mlflow.genai.datasets.search_datasets(experiment_ids=[EXPERIMENT],max_results=100)
-    dataset=next((d for d in found if d.name==DATASET),None)
-    if dataset is None:dataset=mlflow.genai.datasets.create_dataset(name=DATASET,experiment_id=EXPERIMENT)
+    # Search returns metadata entities on Databricks; reload by UC name to get
+    # the supported mutable dataset adapter (rather than merging by dataset UUID).
+    if any(d.name==DATASET for d in found):
+        dataset=mlflow.genai.datasets.get_dataset(name=DATASET)
+    else:
+        dataset=mlflow.genai.datasets.create_dataset(name=DATASET,experiment_id=EXPERIMENT)
     dataset.merge_records(scenarios())
     judges={s.name:s for s in list_scorers(experiment_id=EXPERIMENT)}
     model='databricks:/'+config['evaluation']['judge_model']
@@ -90,16 +94,41 @@ def evaluate(root,model_uri,phase):
             desired.append(Guidelines(name=scorer['name'],guidelines=scorer['rules'],model=model))
     for scorer in desired:
         existing=judges.get(scorer.name)
-        if existing is None or (isinstance(scorer,Guidelines) and existing.model_dump().get('guidelines')!=scorer.guidelines):
-            # Version changed guideline definitions; retain the prior registered version.
-            scorer.register(experiment_id=EXPERIMENT)
-            judges[scorer.name]=scorer
+        if existing is None:
+            judges[scorer.name]=scorer.register(experiment_id=EXPERIMENT)
+        elif isinstance(scorer,Guidelines) and getattr(existing,'guidelines',None)!=scorer.guidelines:
+            # Databricks updates registered definitions in place; it does not
+            # support registering another version under an existing name.
+            judges[scorer.name]=scorer.update(experiment_id=EXPERIMENT,
+                sampling_config=ScorerSamplingConfig(sample_rate=existing.sample_rate,
+                    filter_string=existing.filter_string))
     result=mlflow.genai.evaluate(data=dataset,predict_fn=predict_fn,scorers=list(judges.values()))
     validate_evaluation_rows(result.result_df,len(dataset.to_df()))
     metrics={k:float(v) for k,v in result.metrics.items()}
     # All numeric quality scores must meet the configured gate; errors fail closed.
     validate_quality_gate(metrics,judges,float(config['evaluation']['quality_gate_threshold']))
     return {'run_id':result.run_id,'phase':phase,'dataset':DATASET,'metrics':metrics,'gate':'passed','scorers':list(judges)}
+
+
+def load_candidate(model_uri):
+    """Resolve application imports from the artifact rather than the job source."""
+    import importlib
+    import sys
+    import mlflow
+    # The notebook imports this lifecycle module before loading the candidate.
+    # Keep its local references, but discard the source package import cache so
+    # the model's code_paths supply every runtime module, including lazy imports.
+    for name in list(sys.modules):
+        if name=='fe_multi_agent' or name.startswith('fe_multi_agent.'):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+    loaded=mlflow.pyfunc.load_model(model_uri)
+    package=sys.modules.get('fe_multi_agent')
+    if package is None or '/Workspace/' in str(package.__file__):
+        raise RuntimeError('Candidate resolved application modules outside its packaged artifact')
+    # Check the lazy Genie transport before expensive evaluation starts.
+    importlib.import_module('fe_multi_agent.genie_agent')
+    return loaded
 
 
 def validate_evaluation_rows(frame, expected_rows):
