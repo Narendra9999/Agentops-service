@@ -64,3 +64,21 @@ def test_framework_wheel_built_once_from_isolated_sources(monkeypatch, tmp_path)
     result = utils.build_framework_wheel('bundle')
     assert result.endswith('.whl') and len(calls) == 1
     assert '--no-build-isolation' in calls[0]
+
+
+def test_registration_trace_bindings_resolve_without_removed_local_helper():
+    import ast
+    from pathlib import Path
+    source = Path(__file__).resolve().parents[2] / 'src/agent_development/agent/notebooks/RegisterModel.py'
+    tree = ast.parse(source.read_text())
+    names = {'tracing_schema', 'tracing_table_prefix'}
+    nodes = [node for node in tree.body if isinstance(node, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id in names for t in node.targets)]
+    namespace = {'team_settings': {}, 'audit_schema': 'audit', 'agent_name': 'agent'}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+    assert namespace['tracing_schema'] == 'audit'
+    assert namespace['tracing_table_prefix'] == 'agent'
+    namespace['team_settings'] = {'tracing_schema': 'team_audit', 'tracing_table_prefix': 'team'}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+    assert namespace['tracing_schema'] == 'team_audit'
+    assert namespace['tracing_table_prefix'] == 'team'

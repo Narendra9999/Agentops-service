@@ -161,8 +161,8 @@ experiment_name = resolve_experiment_name(_team_registration, experiment_name, m
 from framework.monitoring.uc_tracing import configure_uc_trace_experiment
 
 tracing_uc_enabled = team_settings.get("tracing_uc_enabled", False) if team_name else w_tracing_uc_enabled
-tracing_schema = pick(team_settings.get("tracing_schema"), audit_schema)
-tracing_table_prefix = pick(team_settings.get("tracing_table_prefix"), agent_name)
+tracing_schema = team_settings.get("tracing_schema") or audit_schema
+tracing_table_prefix = team_settings.get("tracing_table_prefix") or agent_name
 
 configure_uc_trace_experiment(
     experiment_name=experiment_name,
