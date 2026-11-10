@@ -1,3 +1,7 @@
+> Current endpoint: `fe-platform-intelligence`, version **2**.
+> Playground compatibility and signed memory checks passed; the pipeline post-deployment quality gate failed.
+> See [validation and remaining issues](PLAYGROUND_FIX.md).
+
 > Fresh agent `fe-platform-intelligence`, model version **1**, passed the original
 > pipeline and live validation. See [fresh deployment results](FRESH_DEPLOYMENT.md).
 > App deployment remains deferred; earlier endpoint results below are historical.

@@ -24,8 +24,12 @@ def main():
     args=parser.parse_args()
     w=WorkspaceClient(profile=args.profile)
     e=w.serving_endpoints.get(args.endpoint)
+    entities={item.name:str(item.entity_version) for item in e.config.served_entities}
+    routes=e.config.traffic_config.routes
+    live_versions={entities[getattr(route,'served_entity_name',None) or route.served_model_name]
+                   for route in routes if route.traffic_percentage>0}
     if (e.state.ready.value!='READY' or e.state.config_update.value!='NOT_UPDATING'
-            or e.config.served_entities[0].entity_version!=args.version):
+            or live_versions!={args.version}):
         raise RuntimeError('Requested model version is not fully ready')
     secret=base64.b64decode(w.secrets.get_secret(scope='fe-agentops-context',key='signing-key').value).decode()
     owner='evaluation:serving-file-memory:'+str(uuid.uuid4())
