@@ -85,3 +85,57 @@ Databricks SDK, obtain short-lived OAuth credentials and verify TLS.
 database name. `pg8000` is the protocol driver for Lakebase. These necessary names
 do not represent a separate PostgreSQL service. The old disposable local database
 test suite has been retired; live durability checks run against FEVM Lakebase.
+
+## AgentOPS pipeline rollout — version 19 (2026-11-10)
+
+The team-scoped serverless AgentOPS pipeline completed successfully:
+[run 891259459764591](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/891259459764591?o=7474644082064164).
+All six tasks passed: preflight, registration, pre-evaluation, deployment, framework
+smoke, and post-evaluation. Endpoint `fe-platform-agent-team` is READY /
+NOT_UPDATING on `fevm_catalog_naren.agentops_multi.platform_team` version **19**;
+`champion=19`, `previous=18`.
+
+| Evaluation gate | Before | After |
+|---|---|---|
+| Correctness | 1.0 | 1.0 |
+| Relevance | 1.0 | 1.0 |
+| Safety | 1.0 | 1.0 |
+| Cost grounding | 1.0 | 1.0 |
+| Platform evidence | 1.0 | 1.0 |
+| Actual specialist routing | 1.0 | 1.0 |
+
+Each phase evaluated cost-only, platform-only and combined requests. Pre-evaluation
+run: `a6c22bd1478447f39ca4406f5de7299f`; post-evaluation run:
+`6448b18787f648149178264d3b3b589d`. These scenarios validate routing and grounded
+input clarification; they do not establish accuracy for every numerical quote.
+
+Additional live checks passed:
+
+- Framework response tags and input guardrail: `tr-25970fa2a6a0cd09f1628a823d59e731`.
+- Explicit memory write persisted in Lakebase and fresh-session read succeeded.
+- Embedded Platform retrieval and Genie-only cost delegation selected the expected workers.
+- Authenticated App history, conversation rename, memory write, fresh-conversation
+  recall and test-note soft deletion succeeded. All seven App/serving traces are OK.
+- Platform trace `tr-336734114ae97f505be741de0dc5f7d1` contains seven model spans
+  with native token usage and configured-rate cost attributes. Genie internal usage
+  remains unmetered; these are estimates for observed calls, not a total Genie bill.
+
+Local validation: 95 example Python tests passed, one optional test skipped;
+10 framework/deployment unit tests and nine Node chart/link tests passed.
+Strict bundle validation and Git whitespace checks passed. The full legacy root
+suite was not validated: its customer resource template remains unavailable.
+
+Persistence uses the approved Lakebase project endpoint only. There is no external
+or local PostgreSQL service/DSN. Required Lakebase SDK/protocol identifiers such as
+`WorkspaceClient.postgres`, `postgres_role`, `databricks_postgres` and `pg8000`
+remain because Lakebase uses the PostgreSQL protocol.
+
+The team-owned documentation index
+`fevm_catalog_naren.agentops_multi.platform_docs_index` is READY with 84 chunks,
+including three official serverless Jobs documentation chunks. The original
+81-chunk index was retained; its failed incremental-sync pipeline was stopped.
+The rollout reuses the existing Genie agent and deploys no separate worker endpoint.
+
+This is the team-scoped pipeline using the shared AgentOPS framework. The legacy
+root customer/Jenkins bundle was not run. Machine-readable rollout, smoke and trace
+checks are retained locally under ignored `examples/multi_agent_fe/validation-results/`.

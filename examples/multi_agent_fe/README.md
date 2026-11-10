@@ -8,8 +8,9 @@ The default deployment packages the existing supervisor **ResponsesAgent** and
 Platform knowledge worker together. Cost intelligence calls the existing Genie
 STANDARD agent. Lakebase supplies explicit supervisor memory tools plus App
 conversation history, bounded summaries and preferences. The remote knowledge
-worker option remains configurable. FEVM model version **12** and the updated App
-are live; persistent memory and fresh-conversation recall passed deployed checks.
+worker option remains configurable. FEVM model version **19** and the updated App
+are live; persistent memory, fresh-conversation recall and specialist routing passed
+deployed checks.
 See the team README for deployment evidence.
 
 The App retains activity events, stop, cleared message composer, conversation
