@@ -455,5 +455,9 @@ refactor is separately prepared for review with external worker bindings.
   `evaluation:file-memory:431b4eaf-71f6-4ac8-b936-4c5026958d13`.
   Fresh-store recall, isolation, stale writes and restoration passed. Fixture is
   soft-deleted; version history retained. Test ran under the setup identity.
-- Model-tool compatibility run: `614766712455059` (result recorded below when complete).
+- Model-tool compatibility run: `614766712455059` — SUCCESS. Claude supervisor
+  called file tools, recalled a note in a fresh graph with a stub file store,
+  and invoked embedded Platform knowledge against the existing index. Trace:
+  `tr-f70a2314c4ca342de331d06eaed59815`. This is separate from the real Lakebase
+  persistence check; it is not an end-to-end deployed App test.
 - No serving traffic change or App redeployment in this pivot validation.

@@ -153,3 +153,9 @@ and isolated context-signing material. FEVM evaluation namespace
 fresh-session recall, isolation, revision conflict and recovery; its file is now
 soft-deleted. This validation used the authenticated setup identity, not the
 serving principal or the App. Live serving remains unchanged until rollout.
+
+Real-model file-tool compatibility also passed FEVM run `614766712455059`, trace
+`tr-f70a2314c4ca342de331d06eaed59815`: explicit file tools, fresh-graph recall with
+stub files, and embedded Platform retrieval. It complements the separate durable
+Lakebase check; deployed App-to-serving memory is not yet validated.
+An additional boundary test passed for unsafe paths and sensitive write rejection.
