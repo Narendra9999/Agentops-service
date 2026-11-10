@@ -2,7 +2,7 @@
 import os
 from contextlib import contextmanager
 import pytest
-from fe_multi_agent.memory import DDL,MemoryStore
+from fe_multi_agent.memory import DDL,MemoryStore,MemoryWorkspace
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def database():
     with connection() as conn:
         conn.execute('CREATE SCHEMA IF NOT EXISTS app_history')
         for sql in DDL:conn.execute(sql)
-        conn.execute('TRUNCATE agent_memory.items,agent_memory.audit')
+        conn.execute('TRUNCATE agent_memory.items,agent_memory.audit,agent_memory.files,agent_memory.file_versions')
     return connection
 
 
@@ -57,3 +57,34 @@ def test_concurrent_duplicate_memory_writes_have_one_durable_record(database):
     assert all(r['stored'] for r in results)
     assert len({r['id'] for r in results})==1
     assert len(MemoryStore(database,'alice','new').search('batch'))==1
+
+
+def test_markdown_workspace_persistence_conflict_history_and_isolation(database):
+    first=MemoryWorkspace(database,'alice','one')
+    later=MemoryWorkspace(database,'alice','two')
+    other=MemoryWorkspace(database,'bob','three')
+    path='/memories/workloads/batch.md'
+    content='# Batch\nRegion: eu-west-1'
+    assert first.write_file(path,content,0,content,'')['revision']==1
+    assert later.read_file(path)['content']==content
+    assert other.files()==[] and other.read_file(path)['not_found']
+    assert not other.delete_file(path,1)['written']
+    assert later.write_file(path,content+'\nFrequency: daily',1,'','')['revision']==2
+    assert not first.write_file(path,content,1,'','')['written']
+    assert [v['revision'] for v in later.history(path)]==[2,1]
+    assert later.delete_file(path,2)['deleted']
+    assert later.read_file(path)['not_found']
+    assert later.write_file(path,content,3,'','')['revision']==4
+    assert later.read_file(path)['content']==content
+    with pytest.raises(ValueError):later.read_file('/memories/../bob.md')
+    with database() as conn:
+        conn.execute("UPDATE agent_memory.files SET expires_at=now()-interval '1 second' WHERE owner_id='alice'")
+    assert later.files()==[]
+
+
+def test_concurrent_file_creation_uses_revision_check(database):
+    from concurrent.futures import ThreadPoolExecutor
+    def write(i):
+        return MemoryWorkspace(database,'alice',str(i)).write_file('/memories/profile.md','# Workload\nDaily batch',0,'','')
+    with ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(write,range(4)))
+    assert sum(r['written'] for r in results)==1

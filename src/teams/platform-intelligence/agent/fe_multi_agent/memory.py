@@ -139,3 +139,104 @@ class MemoryStore:
             changed=bool(cur.fetchone())
             if changed:self._audit(cur,action,memory_id)
         return {'changed':changed,'id':memory_id}
+
+
+# Virtual Markdown files: durable across processes; never access container paths.
+WORKSPACE_DDL = [
+    """CREATE TABLE IF NOT EXISTS agent_memory.files (
+      owner_id text NOT NULL, path text NOT NULL, content text NOT NULL,
+      revision integer NOT NULL, deleted boolean NOT NULL DEFAULT false,
+      expires_at timestamptz NOT NULL, PRIMARY KEY(owner_id,path))""",
+    """CREATE TABLE IF NOT EXISTS agent_memory.file_versions (
+      id bigserial PRIMARY KEY, owner_id text NOT NULL, path text NOT NULL,
+      revision integer NOT NULL, content text NOT NULL, action text NOT NULL,
+      source_conversation text NOT NULL, source_trace text NOT NULL,
+      source_evidence text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now())""",
+]
+DDL.extend(WORKSPACE_DDL)
+
+
+class MemoryWorkspace(MemoryStore):
+    """Owner-scoped virtual files, bounded reads and optimistic concurrent edits.
+
+    Existing structured evidence validation remains available for future migration;
+    runtime file tools use only this workspace interface.
+    """
+
+    @staticmethod
+    def validate_path(path):
+        if not isinstance(path, str) or not re.fullmatch(
+                r'/memories/(?:[a-z0-9_-]+/)*[a-z0-9_-]+\.md', path) or len(path) > 240:
+            raise ValueError('Use a lowercase Markdown path under /memories/; traversal is forbidden')
+        return path
+
+    def files(self, query=''):
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""SELECT path,revision,left(content,240) FROM agent_memory.files
+              WHERE owner_id=%s AND NOT deleted AND expires_at>now()
+              AND (%s='' OR position(lower(%s) in lower(path || ' ' || content))>0)
+              ORDER BY path LIMIT 40""", (self.owner, query[:200], query[:200]))
+            return [dict(zip(('path','revision','preview'), row)) for row in cur.fetchall()]
+
+    def read_file(self, path):
+        self.validate_path(path)
+        with self.connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""SELECT content,revision FROM agent_memory.files
+              WHERE owner_id=%s AND path=%s AND NOT deleted AND expires_at>now()""", (self.owner,path))
+            row = cur.fetchone()
+        return dict(zip(('content','revision'),row)) if row else {'not_found':True}
+
+    def write_file(self, path, content, expected_revision, user_message, cost_evidence):
+        self.validate_path(path)
+        if not isinstance(expected_revision,int) or expected_revision < 0:
+            return {'written':False,'reason':'Invalid expected revision'}
+        if not 3 <= len(content) <= 12000:
+            return {'written':False,'reason':'File must contain 3 to 12000 characters'}
+        from framework.guardrails.pre_llm import PreLLMGuardrails
+        from framework.guardrails.post_llm import PostLLMGuardrails
+        if (PreLLMGuardrails({'enabled_checks':['injection','pii']}).check(content).get('blocked') or
+            PostLLMGuardrails({'enabled_checks':['pii_leakage']}).check('',content).get('blocked') or
+            re.search(r'(?i)(api[_ -]?key|password|secret|bearer\s|dapi[a-z0-9])',content)):
+            return {'written':False,'reason':'Sensitive or instruction-like content rejected'}
+        # A curation edit can reorganize old evidence and add current observed evidence.
+        # Persist provenance alongside every revision; model prose is not verified truth.
+        return self._mutate(path,content,expected_revision,'write',
+                            json.dumps({'user_sha256':hashlib.sha256(user_message.encode()).hexdigest(),
+                                        'cost_worker_sha256':hashlib.sha256(cost_evidence.encode()).hexdigest()}))
+
+    def delete_file(self, path, expected_revision):
+        self.validate_path(path)
+        return self._mutate(path,'',expected_revision,'delete')
+
+    def _mutate(self, path, content, expected_revision, action, source_evidence='{}'):
+        with self.connection() as conn:
+            cur = conn.cursor()
+            if expected_revision == 0 and action == 'write':
+                cur.execute("""INSERT INTO agent_memory.files(owner_id,path,content,revision,expires_at)
+                  VALUES (%s,%s,%s,1,now()+(%s * interval '1 day'))
+                  ON CONFLICT DO NOTHING RETURNING revision""", (self.owner,path,content,self.ttl_days))
+            else:
+                cur.execute("""UPDATE agent_memory.files SET content=%s,revision=revision+1,deleted=%s,
+                  expires_at=now()+(%s * interval '1 day')
+                  WHERE owner_id=%s AND path=%s AND revision=%s RETURNING revision""",
+                  (content,action=='delete',self.ttl_days,self.owner,path,expected_revision))
+            row = cur.fetchone()
+            if not row:
+                return {'written':False,'reason':'Revision conflict or missing file; read before editing'}
+            revision = row[0]
+            cur.execute("""INSERT INTO agent_memory.file_versions
+              (owner_id,path,revision,content,action,source_conversation,source_trace,source_evidence)
+              VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+              (self.owner,path,revision,content,action,self.conversation,self.trace_id,source_evidence))
+        return {'written':True,'path':path,'revision':revision,'deleted':action=='delete'}
+
+    def history(self, path):
+        self.validate_path(path)
+        with self.connection() as conn:
+            cur=conn.cursor()
+            cur.execute("""SELECT revision,content,action,created_at::text FROM agent_memory.file_versions
+              WHERE owner_id=%s AND path=%s ORDER BY revision DESC LIMIT 10""",(self.owner,path))
+            return [dict(zip(('revision','content','action','created_at'),row)) for row in cur.fetchall()]

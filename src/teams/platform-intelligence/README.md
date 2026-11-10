@@ -13,8 +13,8 @@ flowchart TD
     UI -->|Signed bounded context| A[AgentOPS ResponsesAgent wrapper]
     A --> G[Input guardrails]
     G --> S[Supervisor: Claude Sonnet 4.6]
-    S -->|search_memory first| M[(Lakebase user memory)]
-    S -->|store / approve / forget tools| M
+    S -->|list files first| M[(Lakebase user memory)]
+    S -->|read / write / delete tools| M
     S -->|delegate_to_worker| K[In-process Platform knowledge: GPT-OSS]
     K --> V[Existing Databricks Docs Vector Search index]
     S -->|delegate_to_worker| C[Existing Genie: Cost intelligence]
@@ -48,31 +48,12 @@ No index, Genie agent or worker endpoint is created by this implementation.
 
 ## Memory behavior
 
-Every memory-enabled turn starts with an actual supervisor `search_memory` tool
-call. The graph rejects attempts to skip it. The supervisor then chooses
-`store_memory`, `approve_memory`, `forget_memory`, `delegate_to_worker` or
-`finish_response`. Each specialist runs at most once per turn. The tool loop and
-LangGraph recursion are bounded.
-
-Durable memory is scoped to the authenticated App user, not the serving principal
-or an email typed into chat. User facts require content and evidence quoted from
-the current user message. Cost patterns require quotes from the current cost
-worker's result and are stored as **pending**. Pending patterns are excluded from
-retrieval until the user sends `approve pattern <memory-id>`. Deletion requires
-`forget memory <memory-id>`. Facts and approved patterns expire after 90 days by
-default. Store/search/approve/delete events are audited with conversation/trace
-provenance. Historical prices never become authoritative current prices.
-
-Memory tools reject instruction-like or sensitive content. The current retrieval
-strategy combines text matching for approved patterns with up to eight recent
-user facts, scoped by owner and expiry. Memory is user-scoped in this version;
-project namespaces, semantic retrieval and a dedicated memory-management UI are
-future extensions. Pattern approval is explicit, not automatic self-training.
-
-A failed read allows execution to continue with a visible memory-unavailable
-notice. Failed writes return an unsuccessful tool result. Successful memory tools
-write during agent execution: cancelling a turn can leave a saved fact/proposal.
-Memory writes are not contingent on successful final-answer delivery.
+Every memory-enabled turn starts with the supervisor's `list_memory_files` call.
+The graph rejects attempts to skip it. The supervisor reads relevant files and
+curates them with explicit write/delete tools and revision checks. Owner-scoped
+Lakebase paths and version history survive serving restarts and new sessions.
+See [MEMORY_WORKSPACE.md](MEMORY_WORKSPACE.md) for tools, limits and recovery.
+Memory writes occur during execution; cancelling an answer does not undo them.
 
 ## Application context
 
@@ -93,14 +74,14 @@ Public plan and tool activity stream while execution runs. Final text and Genie
 artifacts are released after AgentOPS post-guardrails. Stop cooperatively ends
 waiting; in-flight model, retrieval or memory calls may complete.
 
-## Approval-gated FEVM setup
+## FEVM setup and remaining rollout
 
-Persistent setup has **not run**. Automatic approval review requires explicit
-approval of these additive changes to the existing FEVM environment:
+The user approved Lakebase setup, and steps 1–3 below are complete. Steps 4–5
+remain for endpoint/App rollout:
 
-1. Create `agent_memory.items`, `agent_memory.audit` and `app_history.summaries`
+1. Create `agent_memory.files`, `agent_memory.file_versions` and `app_history.summaries`
    in the existing Lakebase database. No existing history is deleted.
-2. Grant the existing serving identity access only to the memory tables and audit
+2. Grant the existing serving identity access only to the file tables and version
    sequence; grant the existing App identity access to conversation summaries.
 3. Create isolated secret scope `fe-agentops-context`, key `signing-key`, and grant
    the App identity READ on that scope. It contains no OAuth credentials.
@@ -142,15 +123,33 @@ not provision it. Shared root infrastructure has not been migrated to
 serverless. Historical validation is in the example's `VALIDATION.md`; it does not
 establish deployment of this new memory-enabled topology.
 
-## Latest validation
+## Validation before the file-workspace pivot
 
 The agent/App suite passed 69 tests (one optional check skipped), including a
 real disposable local PostgreSQL database; seven framework tests and nine chart
 tests passed. FEVM run `280309112395701` passed real-model tool use, recall across
 new graph instances with stub memory, and embedded documentation retrieval.
-It did not test durable FEVM memory: persistent setup remains approval-gated.
+That earlier run did not test durable FEVM memory; see the newer validation below.
 
-Structured facts/patterns are the implemented memory interface at this stage.
-An Anthropic-style curated Markdown workspace would expose file read/create/edit/
-rename/delete tools over durable storage. A process-local stub is only a test
-double and must never be described as cross-session persistent storage.
+The active memory interface is now a curated Markdown workspace persisted in
+Lakebase. The supervisor lists files first, reads relevant notes, and explicitly
+creates, edits, or soft-deletes files through tools. Every write has a revision
+check, retained history, owner scope, expiry, conversation/trace provenance and
+source fingerprints. Files are virtual paths, not serving-container files.
+Pattern status is a model-authored note, not a database-enforced approval.
+The older fact/pattern API remains for compatibility tests, but the runtime uses
+file tools. The historical FEVM stub result above predates this file-tool pivot.
+See [MEMORY_WORKSPACE.md](MEMORY_WORKSPACE.md) for the current design and limits.
+
+## File-workspace validation
+
+The updated agent/App suite passed **71 tests** (one optional check skipped),
+including real local PostgreSQL persistence, concurrent creation, revision conflicts,
+owner isolation, soft-delete and restoration. Seven framework tests passed.
+The approved FEVM setup created `agent_memory.files`,
+`agent_memory.file_versions` and `app_history.summaries`, scoped runtime/App grants,
+and isolated context-signing material. FEVM evaluation namespace
+`evaluation:file-memory:431b4eaf-71f6-4ac8-b936-4c5026958d13` passed persistent
+fresh-session recall, isolation, revision conflict and recovery; its file is now
+soft-deleted. This validation used the authenticated setup identity, not the
+serving principal or the App. Live serving remains unchanged until rollout.

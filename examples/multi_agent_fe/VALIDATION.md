@@ -442,3 +442,18 @@ USD 0.010009; 3,015 tokens match the response and AgentOPS tags. All costs were
 configured-rate fallbacks and no parent span was priced again. This read-only
 check validates the preceding deployed architecture; the supervisor-only team
 refactor is separately prepared for review with external worker bindings.
+
+## File-style memory workspace pivot
+
+- Local agent/App suite: 71 passed, one optional test skipped; includes disposable
+  PostgreSQL checks for persistent files, revision conflicts, owner isolation,
+  history, restore, expiry and concurrent creation.
+- Framework adapter/text contracts: seven passed.
+- Approved FEVM Lakebase provisioning completed: file/version tables, App summaries,
+  scoped grants, isolated signing secret and App READ ACL.
+- Direct FEVM persistence validation passed in isolated namespace
+  `evaluation:file-memory:431b4eaf-71f6-4ac8-b936-4c5026958d13`.
+  Fresh-store recall, isolation, stale writes and restoration passed. Fixture is
+  soft-deleted; version history retained. Test ran under the setup identity.
+- Model-tool compatibility run: `614766712455059` (result recorded below when complete).
+- No serving traffic change or App redeployment in this pivot validation.

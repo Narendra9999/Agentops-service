@@ -22,16 +22,20 @@ settings=Settings(genie_space_id='01f1d6efcecd1620b04cf487817675b7',platform_mod
                   prompt_manifest=str(root/'team/configs/prompts.json'),max_steps=60)
 settings.validate()
 class StubMemory:
- def __init__(self):self.rows=[];self.calls=[]
- def search(self,query):self.calls.append('search_memory');return self.rows
- def store(self,kind,content,evidence,user_message,cost_evidence):
-  self.calls.append('store_memory')
-  source=user_message if kind=='user_fact' else cost_evidence
-  if content.casefold() not in source.casefold() or evidence.casefold() not in source.casefold():
-   return {'stored':False,'reason':'BOTH content and evidence must be exact quotes from the current user message or cost result. Retry with a verbatim quote.'}
-  self.rows.append({'id':'stub-memory-1','kind':kind,'content':content,'status':'active' if kind=='user_fact' else 'pending'})
-  return {'stored':True,'id':'stub-memory-1','status':self.rows[-1]['status']}
- def change(self,*args):raise AssertionError('No approval/deletion requested')
+ def __init__(self):self.rows={};self.calls=[]
+ def files(self,query=''):
+  self.calls.append('list_memory_files')
+  return [{'path':p,'revision':v['revision'],'preview':v['content'][:240]} for p,v in self.rows.items()]
+ def read_file(self,path):
+  self.calls.append('read_memory_file');return self.rows.get(path,{'not_found':True})
+ def write_file(self,path,content,expected_revision,*args):
+  self.calls.append('write_memory_file')
+  revision=self.rows.get(path,{}).get('revision',0)
+  if revision!=expected_revision:return {'written':False,'reason':'Revision conflict'}
+  self.rows[path]={'content':content,'revision':revision+1}
+  return {'written':True,'path':path,'revision':revision+1}
+ def delete_file(self,*args):raise AssertionError('No deletion requested')
+ def history(self,*args):return []
 class NoCost:
  def invoke(self,state):raise AssertionError('Cost worker not needed for memory-only and platform tests')
 
@@ -47,8 +51,8 @@ def turn(question,platform):
 with mlflow.start_span(name='validation.memory_embedded_platform') as span:
  platform=PlatformKnowledgeWorker(settings,workspace)
  result,events=turn('Remember this workload fact exactly: Our scheduled batch runs in eu-west-1. Only save the fact; do not estimate costs or invoke a specialist.',platform)
- assert memory.calls[0]=='search_memory' and 'store_memory' in memory.calls,memory.calls
- assert memory.rows and memory.rows[0]['kind']=='user_fact',memory.rows
+ assert memory.calls[0]=='list_memory_files' and 'write_memory_file' in memory.calls,memory.calls
+ assert memory.rows and any('eu-west-1' in v['content'] for v in memory.rows.values()),memory.rows
  result,events=turn('Which region does our scheduled batch use? Answer from saved memory only; do not invoke a specialist.',platform)
  assert 'eu-west-1' in result['messages'][-1].content,result
  result,events=turn('Explain MLflow tracing for LangGraph using retrieved Databricks documentation. Do not estimate costs.',platform)

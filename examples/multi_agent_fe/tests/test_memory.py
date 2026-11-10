@@ -3,7 +3,7 @@ import json
 import time
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from fe_multi_agent.memory import sign_context, verify_context, MemoryStore
+from fe_multi_agent.memory import sign_context, verify_context, MemoryStore, MemoryWorkspace
 from fe_multi_agent.memory_graph import build_memory_graph
 
 
@@ -21,7 +21,8 @@ def test_signed_context_binds_owner_expiry_and_exact_messages():
 
 class Memory:
     def __init__(self):self.calls=[]
-    def search(self,query):self.calls.append(('search',query));return [{'id':'m','content':'Use eu-west-1','status':'active'}]
+    def files(self,query):self.calls.append(('list',query));return [{'path':'/memories/profile.md','revision':1,'preview':'Use eu-west-1'}]
+    def write_file(self,*args):self.calls.append(('write',args));return {'written':True,'revision':1}
     def store(self,*args):self.calls.append(('store',args));return {'stored':True,'status':'pending'}
     def change(self,*args):self.calls.append(('change',args));return {'changed':False}
 
@@ -37,14 +38,14 @@ class Worker:
 
 def test_model_tools_enforce_search_before_delegation_and_preserve_context():
     memory=Memory();worker=Worker()
-    model=Model([('search_memory',{'query':'batch costs'}),('delegate_to_worker',{'agent':'cost_estimation','task':'Use remembered region eu-west-1; verify rates'}),('store_memory',{'kind':'cost_pattern','content':'Use workload quantities and verified rates.','evidence':'Use workload quantities and verified rates.'}),('finish_response',{'answer':'Please provide batch size.'})])
+    model=Model([('list_memory_files',{'query':''}),('delegate_to_worker',{'agent':'cost_estimation','task':'Use remembered region eu-west-1; verify rates'}),('write_memory_file',{'path':'/memories/cost-patterns/batch.md','content':'# PROPOSED\nUse workload quantities and verified rates.','expected_revision':0}),('finish_response',{'answer':'Please provide batch size.'})])
     graph=build_memory_graph(model,{'cost_estimation':worker,'platform_docs':worker},'Use tools',memory,{'summary':'Earlier batch context'})
     result=graph.invoke({'messages':[HumanMessage(content='Estimate batch costs')]})
     assert result['messages'][-1].content=='Please provide batch size.'
-    assert [c[0] for c in memory.calls]==['search','store']
+    assert [c[0] for c in memory.calls]==['list','write']
     assert 'eu-west-1' in worker.calls[0]['messages'][-1].content
-    assert model.bindings[0][0]==['search_memory']
-    assert model.bindings[0][1]['tool_choice']=='search_memory'
+    assert model.bindings[0][0]==['list_memory_files']
+    assert model.bindings[0][1]['tool_choice']=='list_memory_files'
     assert 'Earlier batch context' in str(model.prompts[0])
 
 
@@ -65,8 +66,16 @@ def test_pending_patterns_require_exact_user_approval_and_no_db_for_invalid_evid
 
 def test_memory_unavailable_is_disclosed_and_no_fabricated_recall():
     memory=Memory()
-    memory.search=lambda query:(_ for _ in ()).throw(RuntimeError('database down'))
-    model=Model([('search_memory',{'query':'cost'}),('finish_response',{'answer':'Please provide the region.'})])
+    memory.files=lambda query:(_ for _ in ()).throw(RuntimeError('database down'))
+    model=Model([('list_memory_files',{'query':''}),('finish_response',{'answer':'Please provide the region.'})])
     worker=Worker()
     result=build_memory_graph(model,{'cost_estimation':worker,'platform_docs':worker},'',memory,{}).invoke({'messages':[HumanMessage(content='Cost')]})
     assert 'Memory was unavailable' in result['messages'][-1].content
+
+
+def test_workspace_rejects_unsafe_paths_and_sensitive_content_before_database_access():
+    def no_db():raise AssertionError('Invalid writes must not reach the database')
+    workspace=MemoryWorkspace(no_db,'alice','conversation')
+    for path in ['/etc/profile.md','/memories/../bob.md','/memories/a/b.txt']:
+        with pytest.raises(ValueError):workspace.read_file(path)
+    assert not workspace.write_file('/memories/profile.md','password = example-credential',0,'','')['written']
