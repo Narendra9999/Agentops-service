@@ -6,16 +6,13 @@
 
 # COMMAND ----------
 
-# Resolve shared framework from the deployed bundle before dependency setup.
-import os, sys
-dbutils.widgets.text("dependency_source", "volume")
-_dependency_source = dbutils.widgets.get("dependency_source").strip()
-if _dependency_source not in {"volume", "environment"}:
-    raise ValueError("dependency_source must be volume or environment")
-os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
-_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
 
 
 widget_defaults = {
@@ -75,10 +72,14 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read widgets after restart
-import os, sys
-_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
+
 import os
 
 from framework.notebook_bootstrap import (
@@ -269,10 +270,7 @@ team_runtime = TeamRuntime(bundle_root, team_name, dbutils)
 
 @mlflow.trace(name="post_deployment_predict", span_type="AGENT")
 def predict_fn(query, **kwargs):
-    from databricks.sdk.core import Config
-    client = WorkspaceClient(config=Config(http_timeout_seconds=240))
-    result = client.api_client.do("POST", "/serving-endpoints/" + endpoint_name + "/invocations",
-                                body=team_runtime.request(str(query)))
+    result = team_runtime.invoke(endpoint_name, str(query))
     return team_runtime.evaluation_output(result)
 
 # Run one traced endpoint evaluation so MLflow can import the complete serving trace.

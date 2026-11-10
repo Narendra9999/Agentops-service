@@ -71,7 +71,7 @@ paths, FEVM dependency settings and rollout evidence.
 `RegisterModel.py` loads it, merges resolved naming and the generated experiment
 ID, and packages it as MLflow `model_config`. At serving startup,
 `agent/Agent.py:ChatModel.load_context()` reads `context.model_config`, extracts
-`multi_agent.settings`, then constructs `Settings(**values)` from
+`multi_agent.settings` plus the canonical supervisor model/transport in `llm`, then constructs `Settings(**values)` from
 `agent/fe_multi_agent/config.py`. That dataclass supplies defaults and validation;
 it does not override the YAML with a second workspace configuration.
 
@@ -79,7 +79,11 @@ it does not override the YAML with a second workspace configuration.
 |---|---|---|
 | Model/endpoint identity | `agent.name`, `naming.*` | Original pipeline notebooks |
 | Lakebase file memory | `multi_agent.settings.memory_enabled`, `memory_endpoint`, `memory_ttl_days` | Supervisor memory tools |
+| Supervisor model/transport | `llm.endpoint`, `llm.api` | Team entry point and supervisor |
 | Worker bindings/models | `multi_agent.settings` | `build_graph()` and worker services |
+| Registration resources | `model.resources` | Generic framework resource loader |
+| Job/model packages | `configs/requirements.lock` | Serverless environment and model registration |
+| Pipeline checks/timeouts | `pipeline.sanity_queries`, `pipeline.request_timeout_seconds` | Shared TeamRuntime |
 | App conversation history/preferences | `HISTORY_LAKEBASE_ENDPOINT` in `examples/multi_agent_fe/app/app.yaml` | Authenticated FastAPI App |
 | Context signing | `pipeline` signing scope/key and `deployment.environment_vars.AGENT_CONTEXT_SIGNING_KEY` | Evaluation adapter and serving |
 | Runtime OAuth | `deployment.environment_vars.DATABRICKS_*` (secret reference only) | Serving WorkspaceClient and Lakebase |
@@ -449,3 +453,13 @@ Genie internal model usage remains unmetered.
 
 Validation evidence is retained locally under the ignored
 `examples/multi_agent_fe/validation-results/` directory.
+
+
+## Shared pipeline standardization
+
+See [the shared team pipeline contract](../../../docs/development/team-pipeline-contract.md)
+for startup responsibilities, resource declaration syntax and compatibility.
+`notebook_bootstrap` prepares paths and dependency policy; it does not orchestrate
+agents. Team-specific memory questions now live in `pipeline.sanity_queries`.
+The job declares common parameters once, and both compute and model registration
+read `configs/requirements.lock`. This refactor has not yet been deployed.

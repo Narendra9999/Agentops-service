@@ -37,7 +37,8 @@ logging, team fixtures and scorer loader. No Genie agent or worker endpoint is
 created. Vector Search creation is disabled because the configured index exists.
 
 FEVM uses serverless environments with the team's pinned dependencies, selected
-by `dependency_source: environment`. Original customer jobs retain the default
+by the job-level parameter `dependency_source: environment`. Both the job
+environment and model registration reference `../configs/requirements.lock`. Original customer jobs retain the default
 `volume` mode and offline dependency installation. FEVM disables environment
 packing in team config; the shared registration path still supports its default
 offline `env_pack` behavior.
@@ -107,3 +108,14 @@ Genie internal model usage remains unmetered.
 
 Validation evidence is retained locally under the ignored
 `examples/multi_agent_fe/validation-results/` directory.
+
+
+## Pipeline refactor (pending rollout)
+
+Common notebook startup, inference invocation and metric gates now use shared
+helpers. Registration builds one framework wheel and reuses it for upload.
+Resources and sanity questions are explicitly configured by the team. Common
+parameters are job-level parameters pushed to the original six notebook tasks.
+See [the contract](../../../../docs/development/team-pipeline-contract.md).
+Strict bundle validation passed; this refactor has not been deployed or executed
+in FEVM. Earlier rollout evidence above applies to earlier source versions.

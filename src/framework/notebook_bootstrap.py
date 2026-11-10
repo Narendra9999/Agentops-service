@@ -71,6 +71,31 @@ def resolve_bundle_paths(dbutils) -> dict[str, str]:
     }
 
 
+def initialize_notebook(dbutils) -> dict[str, str]:
+    """Resolve paths and dependency policy; never load team secrets or run agents.
+
+    Call again after restartPython. Only the minimal import locator belongs in
+    each notebook; all validation and startup state lives here.
+    """
+    paths = resolve_bundle_paths(dbutils)
+    if paths['src_root'] not in sys.path:
+        sys.path.insert(0, paths['src_root'])
+    dbutils.widgets.text('dependency_source', 'volume')
+    source = dbutils.widgets.get('dependency_source').strip()
+    if source not in {'volume', 'environment'}:
+        raise ValueError('dependency_source must be volume or environment')
+    os.environ['AGENTOPS_DEPENDENCY_SOURCE'] = source
+    return {**paths, 'dependency_source': source}
+
+
+def dependency_find_links(python_version: str = "312") -> str:
+    """Environment-managed jobs need no air-gapped package lookup."""
+    source = os.environ.get('AGENTOPS_DEPENDENCY_SOURCE', 'volume')
+    if source not in {'volume', 'environment'}:
+        raise ValueError('dependency_source must be volume or environment')
+    return get_pip_find_links(python_version) if source == 'volume' else ''
+
+
 def install_air_gapped_packages(packages: list[str], python_version: str = "312") -> str:
     """Install packages from the shared Mastercard air-gapped volume (no PyPI access).
 
@@ -81,9 +106,9 @@ def install_air_gapped_packages(packages: list[str], python_version: str = "312"
     Returns the resolved volume path (callers that need it for a follow-up
     install, e.g. model-dependency installs, can reuse it without recomputing).
     """
-    if os.environ.get("AGENTOPS_DEPENDENCY_SOURCE", "volume") == "environment":
+    vol_path = dependency_find_links(python_version)
+    if not vol_path:
         return ""  # Dependencies are pinned and installed by the job environment.
-    vol_path = get_pip_find_links(python_version)
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", *packages,
         "--find-links", vol_path, "--no-index", "-q",

@@ -32,6 +32,15 @@ class TeamRuntime:
     def enabled(self):
         return self.adapter is not None
 
+    def query(self, stage, default):
+        """Team-specific startup questions belong to pipeline.sanity_queries."""
+        return (self.config.get('pipeline') or {}).get('sanity_queries', {}).get(stage, default)
+
+    def invoke(self, endpoint, query, *, workspace=None):
+        from framework.inference.client import invoke_endpoint
+        timeout = (self.config.get('pipeline') or {}).get('request_timeout_seconds', 240)
+        return invoke_endpoint(endpoint, self.request(query), timeout_seconds=timeout, workspace=workspace)
+
     def request(self, query):
         if self.adapter:
             return self.adapter.build_request(str(query), self.owner)

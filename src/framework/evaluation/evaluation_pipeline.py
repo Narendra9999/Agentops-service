@@ -452,24 +452,12 @@ def run_evaluation(
     logger.info(f"Evaluation metrics: {json.dumps(metrics, indent=2, default=str)}")
 
     # Check against thresholds
-    gate_results = {}
-    all_passed = True
-    for metric_name, threshold in thresholds.items():
-        actual = metrics.get(metric_name)
-        if actual is not None:
-            passed = math.isfinite(actual) and actual >= threshold
-            gate_results[metric_name] = {
-                "threshold": threshold,
-                "actual": actual,
-                "passed": passed,
-            }
-            if not passed:
-                all_passed = False
-                logger.warning(f"GATE FAILED: {metric_name} = {actual} (threshold: {threshold})")
-
-        else:
-            all_passed = False
-            gate_results[metric_name] = {"threshold": threshold, "actual": None, "passed": False}
+    gate_results = metric_gate_results(thresholds, metrics)
+    all_passed = all(gate['passed'] for gate in gate_results.values())
+    for metric_name, gate in gate_results.items():
+        if not gate['passed']:
+            logger.warning("GATE FAILED: %s = %s (threshold: %s)",
+                           metric_name, gate['actual'], gate['threshold'])
 
     # Extract per-row results
     per_row_df = None
@@ -551,6 +539,16 @@ def run_guardrail_evaluation(agent, adversarial_dataset: pd.DataFrame) -> dict:
 # Quality gate — shared by Pre/Post-deployment eval notebooks
 # ──────────────────────────────────────────────────────────────
 
+def metric_gate_results(thresholds: dict, metrics: dict) -> dict:
+    """One fail-closed metric policy for every evaluation stage."""
+    results = {}
+    for name, threshold in thresholds.items():
+        actual = metrics.get(name)
+        results[name] = {'actual': actual, 'threshold': threshold,
+                         'passed': actual is not None and math.isfinite(actual) and actual >= threshold}
+    return results
+
+
 def compute_quality_gate(quality_thresholds: dict, eval_metrics: dict,
                           guardrail_accuracy: float, guardrail_threshold: float) -> dict:
     """Combine per-metric quality thresholds with the guardrail accuracy gate.
@@ -558,14 +556,7 @@ def compute_quality_gate(quality_thresholds: dict, eval_metrics: dict,
     For callers (like PreDeploymentEval) that build ``eval_metrics`` manually
     rather than going through ``run_evaluation``'s own ``gate_results``.
     """
-    quality_gate_results = {}
-    for metric_name, threshold in quality_thresholds.items():
-        actual = eval_metrics.get(metric_name)
-        quality_gate_results[metric_name] = {
-            "actual": actual,
-            "threshold": threshold,
-            "passed": actual is not None and math.isfinite(actual) and actual >= threshold,
-        }
+    quality_gate_results = metric_gate_results(quality_thresholds, eval_metrics)
     quality_passed = all(g["passed"] for g in quality_gate_results.values()) if quality_gate_results else True
     guardrail_passed = guardrail_accuracy >= guardrail_threshold
     return {
@@ -641,8 +632,8 @@ def validate_quality_gate(metrics, judges, threshold):
     errors = {key: value for key, value in metrics.items()
               if key.endswith("/error_count") and value > 0}
     missing = set(judges) - {key.split("/")[0] for key in quality}
-    if missing or errors or any(not math.isfinite(value) or value < threshold
-                               for value in quality.values()):
+    gates = metric_gate_results({key: threshold for key in quality}, quality)
+    if missing or errors or not all(gate['passed'] for gate in gates.values()):
         raise RuntimeError("Evaluation gate failed: " + json.dumps({
             "quality": quality, "errors": errors, "missing": sorted(missing),
         }))

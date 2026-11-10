@@ -7,16 +7,13 @@
 
 # COMMAND ----------
 
-# Resolve shared framework from the deployed bundle before dependency setup.
-import os, sys
-dbutils.widgets.text("dependency_source", "volume")
-_dependency_source = dbutils.widgets.get("dependency_source").strip()
-if _dependency_source not in {"volume", "environment"}:
-    raise ValueError("dependency_source must be volume or environment")
-os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
-_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
 
 
 dbutils.widgets.text("catalog", "")
@@ -88,10 +85,14 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read after restart
-import os, sys
-_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
+
 import os
 
 from framework.notebook_bootstrap import (
@@ -524,19 +525,11 @@ if endpoint_ready:
 
 # COMMAND ----------
 if endpoint_ready:
-    import requests
     from framework.inference import extract_response_text
+    from framework.team_runtime import TeamRuntime
     try:
-        token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-        host = spark.conf.get("spark.databricks.workspaceUrl", "")
-        if not host.startswith("http"):
-            host = f"https://{host}"
-        resp = requests.post(f"{host}/serving-endpoints/{endpoint_name}/invocations",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=__import__('framework.team_runtime', fromlist=['TeamRuntime']).TeamRuntime(
-                bundle_root, team_name, dbutils).request("What is Unity Catalog?"), timeout=(20,240))
-        resp.raise_for_status()
-        data = resp.json()
+        runtime = TeamRuntime(bundle_root, team_name, dbutils)
+        data = runtime.invoke(endpoint_name, runtime.query('deployment', 'What is Unity Catalog?'))
         content = extract_response_text(data)
         print(f"Smoke test PASSED: {content[:200]}...")
     except Exception as e:

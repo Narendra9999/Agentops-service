@@ -42,6 +42,9 @@ class ChatModel(ResponsesAgent):
         if set(block.get('agents', {})) != {'supervisor', 'platform_docs', 'cost_estimation'}:
             raise ValueError('Configure supervisor, platform_docs and cost_estimation only')
         values = dict(block.get('settings') or {})
+        llm = self.config.get('llm') or {}
+        values['supervisor_model'] = llm['endpoint']
+        values['model_transport'] = llm.get('api', 'model_serving')
         values['prompt_manifest'] = str(Path(__file__).resolve().parent.parent / 'configs/prompts.json')
         values['experiment_id'] = os.getenv('MLFLOW_EXPERIMENT_ID') or self.config.get('tracing', {}).get('experiment_id', '')
         self.graph_agent = SupervisorAgent(Settings(**values))

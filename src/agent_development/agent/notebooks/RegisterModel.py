@@ -53,22 +53,13 @@ if skip_register_model:
 import os
 import subprocess
 import sys
-dbutils.widgets.text("dependency_source", "volume")
-_dependency_source = dbutils.widgets.get("dependency_source").strip()
-if _dependency_source not in {"volume", "environment"}:
-    raise ValueError("dependency_source must be volume or environment")
-os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
-
-# Serverless compute has no job-cluster wheel library attached yet, so
-# `framework` isn't installed — add src/ to sys.path directly (pure stdlib,
-# no wheel/install needed) so the shared volume-path constant is the single
-# source of truth, same as every other pipeline notebook.
-bootstrap_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-if not bootstrap_nb_path.startswith("/Workspace/"):
-    bootstrap_nb_path = f"/Workspace{bootstrap_nb_path}"
-bootstrap_src_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(bootstrap_nb_path))))
-sys.path.insert(0, bootstrap_src_root)
-from framework.mlops_utils import get_pip_find_links
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
 
 from framework.notebook_bootstrap import install_air_gapped_packages
 vol_path = install_air_gapped_packages([
@@ -98,38 +89,22 @@ team_config = dbutils.widgets.get("team_config").strip()
 w_tracing_uc_enabled = dbutils.widgets.get("mlflow_tracing_uc_enabled").strip().lower() in {"1", "true", "yes", "y"}
 
 import mlflow
-import os, sys, subprocess, glob, shutil
+import os, sys, subprocess, shutil
 
-# Resolve notebook-relative paths up-front so the team_config helper can find files
-# in the deployed workspace bundle (the helper installed in the wheel can't infer this).
-def workspace_abs(path: str) -> str:
-    """Normalize workspace paths across interactive and job-cluster contexts."""
-    if not path:
-        return path
-    return path if path.startswith("/Workspace/") else f"/Workspace{path}"
-
-nb_path = workspace_abs(
-    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-)
-nb_dir = os.path.dirname(nb_path)
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(nb_dir)))  # .../files/src
-bundle_root = os.path.dirname(project_root)  # .../files (where pyproject.toml lives)
-sys.path.insert(0, project_root)  # restartPython cleared the initial source bootstrap.
-
-# Serverless job environments don't install wildcard whl paths declared in
-# environments[].spec.dependencies, so build+install the framework package
-# here before any `from framework...` import is attempted. Build from a local
-# writable copy — workspace FUSE paths can block setuptools writes.
-from framework.mlops_utils import stage_framework_source
-bootstrap_src = stage_framework_source(bundle_root)
-bootstrap_wheel_dir = os.path.join(bootstrap_src, "wheels")
-os.makedirs(bootstrap_wheel_dir, exist_ok=True)
-subprocess.run(
-    ["pip", "wheel", bootstrap_src, "--no-deps", "--no-build-isolation", "-w", bootstrap_wheel_dir],
-    check=True,
-)
-bootstrap_wheel = sorted(glob.glob(os.path.join(bootstrap_wheel_dir, "agentops_framework-*.whl")))[-1]
-subprocess.run(["pip", "install", "--force-reinstall", "--no-deps", bootstrap_wheel], check=True)
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
+nb_path = notebook_runtime['nb_path']
+nb_dir = notebook_runtime['nb_dir']
+project_root = notebook_runtime['src_root']
+bundle_root = notebook_runtime['bundle_root']
+from framework.mlops_utils import build_framework_wheel
+local_wheel = build_framework_wheel(bundle_root)
+subprocess.run([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', local_wheel], check=True)
 
 # Resolve team settings — single source of truth from src/teams/<team_name>/config.yaml.
 # When team_name is set, team config values WIN. Widgets only fill gaps the team config
@@ -139,17 +114,16 @@ team_settings = load_team_settings(
     team_name, bundle_root=bundle_root, sql_warehouse_name=w_sql_warehouse_name,
 ) if team_name else {}
 
-def pick(team_val, widget_val):
-    return team_val if team_val else widget_val
-
-catalog = pick(team_settings.get("catalog"), catalog)
-schema = pick(team_settings.get("schema"), w_schema)
-agent_name = pick(team_settings.get("agent_name"), w_agent_name)
-llm_endpoint = pick(team_settings.get("llm_endpoint"), w_llm_endpoint)
-vs_endpoint = pick(team_settings.get("vs_endpoint"), w_vs_endpoint)
-vs_index = pick(team_settings.get("vs_index"), w_vs_index)
-embedding_model = pick(team_settings.get("embedding_model"), w_embedding_model)
-audit_schema = pick(team_settings.get("audit_schema"), f"{schema}_audit")
+from framework.team_config import merge_with_overrides
+resolved = merge_with_overrides({
+    'catalog': catalog, 'schema': w_schema, 'agent_name': w_agent_name,
+    'llm_endpoint': w_llm_endpoint, 'vs_endpoint': w_vs_endpoint,
+    'vs_index': w_vs_index, 'embedding_model': w_embedding_model,
+}, team_settings)
+catalog, schema, agent_name = (resolved[key] for key in ('catalog', 'schema', 'agent_name'))
+llm_endpoint, vs_endpoint, vs_index, embedding_model = (
+    resolved[key] for key in ('llm_endpoint', 'vs_endpoint', 'vs_index', 'embedding_model'))
+audit_schema = team_settings.get('audit_schema') or f'{schema}_audit'
 if team_name and not team_config:
     # Set legacy team_config to bundle-relative path so downstream lookup logic works
     team_config = os.path.relpath(team_settings["team_config_path"], bundle_root)
@@ -275,22 +249,7 @@ print(f"Team agent dir: {team_agent_dir or '(none)'}  (custom agent: {use_team_a
 # MAGIC ## 2. Build framework wheel + upload to UC Volume
 
 # COMMAND ----------
-wheel_dir = bootstrap_wheel_dir
-local_src = bootstrap_src
-
-# --no-build-isolation: use cluster's setuptools (avoids PyPI download behind firewalls)
-build_result = subprocess.run(
-    ["pip", "wheel", local_src, "--no-deps", "--no-build-isolation", "-w", wheel_dir],
-    capture_output=True, text=True)
-print(build_result.stdout)
-if build_result.returncode != 0:
-    print(f"Build stderr: {build_result.stderr}")
-    raise RuntimeError("Framework wheel build failed")
-
-wheel_files = sorted(glob.glob(os.path.join(wheel_dir, "agentops_framework-*.whl")))
-local_wheel = wheel_files[-1] if wheel_files else None
-if not local_wheel:
-    raise RuntimeError("Framework wheel build succeeded but wheel artifact not found")
+# Reuse the wheel already built and installed during startup.
 wheel_filename = os.path.basename(local_wheel)
 print(f"Built: {wheel_filename}")
 
@@ -313,11 +272,8 @@ upload_to_volume(upload_client, local_wheel, volume_wheel)
 local_hash = compute_sha256(local_wheel)
 print(f"Wheel SHA-256: {local_hash[:16]}…")
 
-# Install on cluster for log_model validation
-subprocess.run(["pip", "install", "--force-reinstall", "--no-deps", local_wheel],
-               capture_output=True, text=True)
+# The exact uploaded wheel is already installed for log_model validation.
 sys.path.insert(0, os.path.dirname(tools_dir))
-print("Installed on cluster for validation")
 
 # COMMAND ----------
 
@@ -463,6 +419,8 @@ if uc_cfg.get("enabled") and uc_table:
     resources.append(DatabricksTable(table_name=uc_table_fq))
     print(f"Resource: UC Table {uc_table_fq}")
 
+from framework.model_resources import unique_model_resources
+resources = unique_model_resources(resources)
 print(f"Total resources declared: {len(resources)}")
 
 input_example = {"input": [{"role": "user", "content": "What is Delta Lake?"}]}
@@ -518,30 +476,9 @@ default_model_pip_deps = [
 ]
 
 model_cfg = agent_config.get("model") or {}
-team_pip_deps = model_cfg.get("pip_dependencies")
-if team_pip_deps is None:
-    team_pip_deps = agent_config.get("pip_dependencies", [])
+from framework.model_resources import model_dependencies
+resolved_model_pip_deps = model_dependencies(agent_config, os.path.dirname(config_path), default_model_pip_deps)
 
-if team_pip_deps is None:
-    team_pip_deps = []
-if not isinstance(team_pip_deps, list):
-    raise ValueError("model.pip_dependencies must be a list of package spec strings")
-
-dep_mode = str(model_cfg.get("pip_dependency_mode", "extend")).strip().lower()
-if dep_mode not in {"extend", "replace"}:
-    raise ValueError("model.pip_dependency_mode must be either 'extend' or 'replace'")
-
-if dep_mode == "replace":
-    resolved_model_pip_deps = [str(x).strip() for x in team_pip_deps if str(x).strip()]
-else:
-    resolved_model_pip_deps = []
-    seen_deps = set()
-    for dep in default_model_pip_deps + [str(x).strip() for x in team_pip_deps if str(x).strip()]:
-        if dep not in seen_deps:
-            seen_deps.add(dep)
-            resolved_model_pip_deps.append(dep)
-
-print(f"Model pip dependency mode: {dep_mode}")
 print(f"Model pip deps count: {len(resolved_model_pip_deps)}")
 
 conda_env = mlflow_conda_env(

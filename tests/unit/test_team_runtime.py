@@ -139,3 +139,53 @@ def test_combined_notebook_gate_rejects_missing_nonfinite_and_low_scores(metrics
     from framework.evaluation.evaluation_pipeline import compute_quality_gate
     gate = compute_quality_gate({'routing/mean': .8}, metrics, 1.0, .8)
     assert not gate['gate_passed']
+
+
+def test_common_invocation_policy_preserves_request_contract_and_timeout(monkeypatch):
+    from framework.inference.client import invoke_endpoint
+    calls=[]
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def raise_for_status(self): pass
+        def json(self): return {'output':[]}
+    def post(url, **kwargs):
+        calls.append((url,kwargs))
+        return Response()
+    import requests
+    monkeypatch.setattr(requests,'post',post)
+    workspace=SimpleNamespace(config=SimpleNamespace(host='https://workspace',authenticate=lambda:{'Authorization':'test-only'}))
+    runtime=TeamRuntime(ROOT,'')
+    runtime.config={'pipeline':{'request_timeout_seconds':90,'sanity_queries':{'pre_deployment':'Generic team question'}}}
+    assert runtime.query('pre_deployment','fallback')=='Generic team question'
+    assert runtime.query('deployment','fallback')=='fallback'
+    assert runtime.invoke('my-endpoint','Hello',workspace=workspace)=={'output':[]}
+    assert len(calls)==1 and calls[0][1]['json']==runtime.request('Hello')
+    assert calls[0][1]['timeout']==(20,90)
+    with pytest.raises(ValueError,match='timeout'):
+        invoke_endpoint('my-endpoint',{},timeout_seconds=0,workspace=workspace)
+    with pytest.raises(ValueError,match='name'):
+        invoke_endpoint('https://endpoint',{},workspace=workspace)
+
+
+def test_invocation_failure_is_not_retried(monkeypatch):
+    from framework.inference.client import invoke_endpoint
+    import requests
+    calls=[]
+    def post(*args,**kwargs):
+        calls.append(args)
+        raise requests.Timeout('uncertain execution')
+    monkeypatch.setattr(requests,'post',post)
+    workspace=SimpleNamespace(config=SimpleNamespace(host='https://workspace',authenticate=lambda:{}))
+    with pytest.raises(requests.Timeout):
+        invoke_endpoint('agent',{},workspace=workspace)
+    assert len(calls)==1
+
+
+def test_shared_metric_gate_policy_is_identical_for_combined_evaluation():
+    from framework.evaluation.evaluation_pipeline import metric_gate_results, compute_quality_gate
+    thresholds={'good/mean':.8,'missing/mean':.8,'invalid/mean':.8}
+    metrics={'good/mean':1.,'invalid/mean':float('nan')}
+    expected=metric_gate_results(thresholds,metrics)
+    assert compute_quality_gate(thresholds,metrics,1.,.8)['quality_gate_results']==expected
+    assert [gate['passed'] for gate in expected.values()]==[True,False,False]

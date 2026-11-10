@@ -6,16 +6,13 @@
 
 # COMMAND ----------
 
-# Resolve shared framework from the deployed bundle before dependency setup.
-import os, sys
-dbutils.widgets.text("dependency_source", "volume")
-_dependency_source = dbutils.widgets.get("dependency_source").strip()
-if _dependency_source not in {"volume", "environment"}:
-    raise ValueError("dependency_source must be volume or environment")
-os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
-_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
 
 
 dbutils.widgets.text("catalog", "classic_stable_cykcbe_catalog")
@@ -51,10 +48,9 @@ if skip_smoke_test:
     }))
 
 # Resolve team settings — team config wins when team_name is set.
-_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_nb_dir = os.path.dirname(_nb_path)
-_src_root = os.path.dirname(os.path.dirname(os.path.dirname(_nb_dir)))  # .../files/src
-_bundle_root = "/Workspace" + os.path.dirname(_src_root)  # .../files
+_nb_dir = notebook_runtime['nb_dir']
+_src_root = notebook_runtime['src_root']
+_bundle_root = notebook_runtime['bundle_root']
 from framework.team_config import load_team_settings
 _settings = load_team_settings(team_name, bundle_root=_bundle_root) if team_name else {}
 catalog = _settings.get("catalog") or catalog
@@ -212,26 +208,14 @@ print("[SKIP] Vector search diversity check disabled (team-specific assumptions)
 
 # COMMAND ----------
 
-from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
-import requests, json as _json
-
 from framework.inference import extract_response_text
 
 from framework.team_runtime import TeamRuntime
 team_runtime = TeamRuntime(_bundle_root, team_name, dbutils)
 
 def query_agent(endpoint, content):
-    """Query a ResponsesAgent endpoint via REST API."""
-    token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
-    host = spark.conf.get("spark.databricks.workspaceUrl", "")
-    if not host.startswith("http"):
-        host = f"https://{host}"
-    url = f"{host}/serving-endpoints/{endpoint}/invocations"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(url, headers=headers, json=team_runtime.request(content), timeout=(20,240))
-    resp.raise_for_status()
-    data = resp.json()
-    return extract_response_text(data)
+    return extract_response_text(team_runtime.invoke(endpoint, content))
+
 
 response_text = query_agent(endpoint_name, test_queries["valid_query"])
 if isinstance(response_text, list):

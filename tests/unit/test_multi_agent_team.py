@@ -42,17 +42,16 @@ def test_standard_team_loader_and_existing_worker_bindings():
 def test_resources_reference_existing_workers_only(monkeypatch):
     Endpoint,Genie=resource_types(monkeypatch)
     from framework.model_resources import language_model_resources
-    cfg={'multi_agent':{'pattern':'langgraph_supervisor','settings':{
-        'platform_endpoint':'existing-knowledge','genie_space_id':'existing-genie',
-        'model_transport':'ai_gateway','supervisor_model':'system.ai.claude-sonnet-4-6'}}}
-    result=language_model_resources(cfg,'system.ai.claude-sonnet-4-6')
+    cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
+    cfg['multi_agent']['settings'].update(platform_mode='remote',platform_endpoint='existing-knowledge',genie_space_id='existing-genie')
+    result=language_model_resources(cfg,cfg['llm']['endpoint'])
     assert len(result)==2 and isinstance(result[0],Endpoint) and isinstance(result[1],Genie)
     assert result[0].name=='existing-knowledge' and result[1].space=='existing-genie'
     cfg['multi_agent']['settings']['cost_endpoint']='existing-cost'
-    result=language_model_resources(cfg,'system.ai.claude-sonnet-4-6')
+    result=language_model_resources(cfg,cfg['llm']['endpoint'])
     assert [r.name for r in result]==['existing-knowledge','existing-cost']
-    cfg['multi_agent']['settings'].update(model_transport='model_serving',supervisor_model='existing-supervisor-llm')
-    result=language_model_resources(cfg,'existing-supervisor-llm')
+    cfg['llm'].update(api='model_serving',endpoint='existing-supervisor-llm')
+    result=language_model_resources(cfg,cfg['llm']['endpoint'])
     assert [r.name for r in result]==['existing-knowledge','existing-cost','existing-supervisor-llm']
 
 
@@ -79,3 +78,14 @@ def test_in_process_worker_declares_index_without_worker_endpoint(monkeypatch):
     result=language_model_resources(cfg,cfg['llm']['endpoint'])
     assert len(result)==2 and result[0].index==cfg['multi_agent']['settings']['docs_index']
     assert result[1].space==cfg['multi_agent']['settings']['genie_space_id']
+
+
+def test_resources_are_topology_independent_and_deduplicated(monkeypatch):
+    Endpoint,_=resource_types(monkeypatch)
+    from framework.model_resources import language_model_resources
+    config={'model':{'resources':[{'type':'serving_endpoint','name':'worker'},
+                                {'type':'serving_endpoint','name':'worker'}]}}
+    result=language_model_resources(config,'unused')
+    assert len(result)==1 and result[0].name=='worker'
+    with pytest.raises(ValueError,match='declare model.resources'):
+        language_model_resources({'multi_agent':{'pattern':'customer_graph'}},'unused')

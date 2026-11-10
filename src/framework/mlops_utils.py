@@ -499,3 +499,20 @@ def stage_framework_source(bundle_root: str) -> str:
     shutil.copytree(root / 'src/framework', Path(destination) / 'src/framework',
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     return destination
+
+
+def build_framework_wheel(bundle_root: str) -> str:
+    """Build once in an isolated writable directory and return the exact artifact."""
+    import subprocess
+    import sys
+    staging = Path(stage_framework_source(bundle_root))
+    wheels = staging / 'wheels'
+    wheels.mkdir()
+    subprocess.run([
+        sys.executable, '-m', 'pip', 'wheel', str(staging), '--no-deps',
+        '--no-build-isolation', '-w', str(wheels),
+    ], check=True)
+    artifacts = list(wheels.glob('agentops_framework-*.whl'))
+    if len(artifacts) != 1:
+        raise RuntimeError('Framework build must produce exactly one wheel')
+    return str(artifacts[0])

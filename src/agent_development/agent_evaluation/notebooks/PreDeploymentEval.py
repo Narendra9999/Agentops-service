@@ -8,16 +8,13 @@
 
 # COMMAND ----------
 
-# Resolve shared framework from the deployed bundle before dependency setup.
-import os, sys
-dbutils.widgets.text("dependency_source", "volume")
-_dependency_source = dbutils.widgets.get("dependency_source").strip()
-if _dependency_source not in {"volume", "environment"}:
-    raise ValueError("dependency_source must be volume or environment")
-os.environ["AGENTOPS_DEPENDENCY_SOURCE"] = _dependency_source
-_bootstrap_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_bootstrap_path = _bootstrap_path if _bootstrap_path.startswith('/Workspace/') else '/Workspace' + _bootstrap_path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_bootstrap_path)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
 
 
 import os
@@ -74,9 +71,9 @@ import sys
 import mlflow
 import mlflow.pyfunc
 
-from framework.mlops_utils import get_pip_find_links
+from framework.notebook_bootstrap import dependency_find_links, install_air_gapped_packages
 
-vol_path = get_pip_find_links("312") if dbutils.widgets.get("dependency_source") == "volume" else ""
+vol_path = dependency_find_links("312")
 mlflow.set_registry_uri("databricks-uc")
 from framework.team_runtime import candidate_model_uri
 from framework.team_config import load_team_settings
@@ -105,11 +102,8 @@ with open(deps_file) as requirements:
             continue
         external_deps.append(requirement)
 
-if external_deps and dbutils.widgets.get("dependency_source") == "volume":
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install", *external_deps,
-        "--find-links", vol_path, "--no-index", "-q",
-    ])
+if external_deps:
+    install_air_gapped_packages(external_deps)
     print(f"Installed {len(external_deps)} dependencies for {bootstrap_model_uri}")
 
 dbutils.library.restartPython()
@@ -118,16 +112,20 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 # Re-read widgets after restart
-import os, sys
-_runtime_nb = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-_runtime_nb = _runtime_nb if _runtime_nb.startswith('/Workspace/') else '/Workspace' + _runtime_nb
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_runtime_nb)))))
+# Minimal locator: make the shared startup helper importable before installation.
+import sys
+from pathlib import Path
+_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+sys.path.insert(0, str(Path(_notebook if _notebook.startswith('/Workspace/') else '/Workspace' + _notebook).parents[3]))
+from framework.notebook_bootstrap import initialize_notebook
+notebook_runtime = initialize_notebook(dbutils)
+
 import os
 
 os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = "2"
 print(f"MLFLOW_GENAI_EVAL_MAX_WORKERS={os.environ['MLFLOW_GENAI_EVAL_MAX_WORKERS']}")
 
-from framework.mlops_utils import get_pip_find_links
+from framework.notebook_bootstrap import dependency_find_links, install_air_gapped_packages
 from framework.notebook_bootstrap import (
     resolve_bundle_paths, resolve_mlflow_experiment_id, resolve_team_settings,
 )
@@ -147,7 +145,7 @@ mlflow_experiment_id = resolve_mlflow_experiment_id(
 )
 
 # Recompute wheel path after restart (air-gapped environment — volume is mandatory).
-vol_path = get_pip_find_links("312") if dbutils.widgets.get("dependency_source") == "volume" else ""
+vol_path = dependency_find_links("312")
 
 # Resolve bundle root for team_config helper
 bundle_paths = resolve_bundle_paths(dbutils)
@@ -259,7 +257,7 @@ if loaded_model is None:
 print(f"Model loaded successfully via mlflow.pyfunc.load_model()")
 
 # Quick sanity check
-test_input = team_runtime.request("Which region is recorded? Read memory only; do not call a worker." if team_runtime.enabled else "What is Databricks?")
+test_input = team_runtime.request(team_runtime.query('pre_deployment', 'What is Databricks?'))
 test_output = loaded_model.predict(test_input)
 if test_output is None:
     raise RuntimeError(f"Model predict() returned None. Model may not be a valid ResponsesAgent.")

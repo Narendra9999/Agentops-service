@@ -8,50 +8,49 @@ resources:
     agentops_pipeline:
       name: agentops-platform-intelligence-${bundle.target}
       max_concurrent_runs: 1
+      parameters:
+      - name: dependency_source
+        default: environment
+      - name: catalog
+        default: fevm_catalog_naren
+      - name: schema
+        default: agentops_multi
+      - name: audit_schema
+        default: agentops_multi_audit
+      - name: agent_name
+        default: platform_intelligence
+      - name: team_name
+        default: platform-intelligence
+      - name: environment
+        default: fevm
+      - name: agent_endpoint
+        default: fe-platform-intelligence
+      - name: vs_endpoint
+        default: agentops-vs-endpoint
+      - name: vs_index
+        default: platform_docs_index
+      - name: eval_golden_table
+        default: platform_team_golden
+      - name: eval_adversarial_table
+        default: platform_team_adversarial
+      - name: eval_results_table
+        default: platform_team_eval_results
+      - name: skip_vector_search_creation
+        default: 'true'
+      - name: skip_vector_search_setup
+        default: 'no'
+      - name: mlflow_tracing_uc_enabled
+        default: 'no'
       tasks:
       - task_key: vector_search_setup
         notebook_task:
           notebook_path: ../../../../src/data_preparation/vector_search/notebooks/VectorSearch.py
-          base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
         timeout_seconds: 7200
         max_retries: 0
       - task_key: register_model
         notebook_task:
           notebook_path: ../../../../src/agent_development/agent/notebooks/RegisterModel.py
-          base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
         timeout_seconds: 7200
         max_retries: 0
@@ -61,22 +60,6 @@ resources:
         notebook_task:
           notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PreDeploymentEval.py
           base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
             mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
         timeout_seconds: 7200
@@ -87,22 +70,6 @@ resources:
         notebook_task:
           notebook_path: ../../../../src/agent_development/agent/notebooks/DeployAgent.py
           base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
             mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
         timeout_seconds: 7200
@@ -112,23 +79,6 @@ resources:
       - task_key: smoke_test
         notebook_task:
           notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/SmokeTest.py
-          base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
         environment_key: agentops
         timeout_seconds: 7200
         max_retries: 0
@@ -138,22 +88,6 @@ resources:
         notebook_task:
           notebook_path: ../../../../src/agent_development/agent_evaluation/notebooks/PostDeploymentEval.py
           base_parameters:
-            catalog: fevm_catalog_naren
-            schema: agentops_multi
-            audit_schema: agentops_multi_audit
-            agent_name: platform_intelligence
-            team_name: platform-intelligence
-            environment: fevm
-            dependency_source: environment
-            agent_endpoint: fe-platform-intelligence
-            vs_endpoint: agentops-vs-endpoint
-            vs_index: platform_docs_index
-            eval_golden_table: platform_team_golden
-            eval_adversarial_table: platform_team_adversarial
-            eval_results_table: platform_team_eval_results
-            skip_vector_search_creation: 'true'
-            skip_vector_search_setup: 'no'
-            mlflow_tracing_uc_enabled: 'no'
             mlflow_experiment_id: '{{tasks.register_model.values.mlflow_experiment_id}}'
         environment_key: agentops
         timeout_seconds: 7200
@@ -165,172 +99,8 @@ resources:
         spec:
           environment_version: '4'
           dependencies:
-          - aiohappyeyeballs==2.7.1
-          - aiohttp==3.14.5
-          - aiohttp-retry==2.9.1
-          - aiosignal==1.4.0
-          - alembic==1.20.1
-          - annotated-doc==0.0.5
-          - annotated-types==0.7.0
-          - anyio==4.16.0
-          - attrs==24.3.0
-          - azure-core==1.34.0
-          - azure-storage-blob==12.23.0
-          - azure-storage-file-datalake==12.17.0
-          - blinker==1.9.0
-          - boto3==1.36.2
-          - botocore==1.36.3
-          - cachetools==5.5.1
-          - certifi==2026.10.19
-          - cffi==1.17.1
-          - charset-normalizer==3.3.2
-          - click==8.1.7
-          - cloudpickle==3.0.0
-          - contourpy==1.3.1
-          - cryptography==43.0.3
-          - cycler==0.11.0
-          - databricks-agents==1.13.0
-          - databricks-ai-bridge==0.22.0
-          - databricks-ai-search==0.83
-          - databricks-connect==17.0.10
-          - databricks-langchain==0.8.0
-          - databricks-sdk==0.163.0
-          - databricks-vectorsearch==0.82
-          - dataclasses-json==0.6.7
-          - deprecated==1.2.13
-          - deprecation==2.1.0
-          - distro==1.9.0
-          - docker==7.2.0
-          - fastapi==0.123.0
-          - flask==3.1.3
-          - flask-cors==6.0.5
-          - fonttools==4.55.3
-          - frozenlist==1.8.0
-          - gitdb==4.0.11
-          - gitpython==3.1.43
-          - google-api-core==2.20.0
-          - google-auth==2.40.0
-          - google-cloud-core==2.4.3
-          - google-cloud-storage==3.1.0
-          - google-crc32c==1.7.1
-          - google-resumable-media==2.7.2
-          - googleapis-common-protos==1.65.0
-          - graphene==3.4.3
-          - graphql-core==3.2.14
-          - graphql-relay==3.2.0
-          - grpcio==1.67.0
-          - grpcio-status==1.67.0
-          - gunicorn==25.3.0
-          - h11==0.16.0
-          - httpcore==1.0.9
-          - httpcore2==2.16.0
-          - httpx==0.28.1
-          - httpx-sse==0.4.3
-          - httpx2==2.16.0
-          - huey==2.6.0
-          - idna==3.20
-          - importlib-metadata==6.6.0
-          - iniconfig==1.1.1
-          - isodate==0.6.1
-          - itsdangerous==2.2.0
-          - jinja2==3.1.5
-          - jiter==0.19.0
-          - jmespath==1.0.1
-          - joblib==1.4.2
-          - jsonpatch==1.45
-          - jsonpointer==3.10
-          - kiwisolver==1.4.8
-          - langchain==0.3.28
-          - langchain-community==0.3.31
-          - langchain-core==0.3.81
-          - langchain-text-splitters==0.3.11
-          - langgraph==0.6.11
-          - langgraph-checkpoint==3.0.1
-          - langgraph-prebuilt==0.6.5
-          - langgraph-sdk==0.2.12
-          - langsmith==0.14.17
-          - mako==1.4.3
-          - markupsafe==3.0.2
-          - marshmallow==3.26.2
-          - matplotlib==3.10.0
-          - mlflow==3.11.1
-          - mlflow-skinny==3.11.1
-          - mlflow-tracing==3.11.1
-          - multidict==7.2.1
-          - mypy-extensions==1.0.0
-          - nest-asyncio==1.6.0
-          - numpy==2.1.3
-          - openai==3.48.0
-          - opentelemetry-api==1.32.1
-          - opentelemetry-proto==1.45.2
-          - opentelemetry-sdk==1.32.1
-          - opentelemetry-semantic-conventions==0.53b1
-          - orjson==3.13.0
-          - ormsgpack==1.13.1
-          - packaging==24.1
-          - pandas==2.2.3
-          - pillow==11.1.0
-          - pluggy==1.5.0
-          - prettytable==3.18.0
-          - propcache==0.5.4
-          - proto-plus==1.26.1
-          - protobuf==5.29.6
-          - py4j==0.10.9.9
-          - pyarrow==19.0.1
-          - pyasn1==0.4.8
-          - pyasn1-modules==0.2.8
-          - pycparser==2.21
-          - pydantic==2.10.6
-          - pydantic-core==2.27.2
-          - pydantic-settings==2.16.2
-          - pyparsing==3.2.0
-          - pytest==8.3.5
-          - python-dateutil==2.9.0.post0
-          - python-dotenv==1.2.4
-          - pytz==2026.5
-          - pyyaml==6.0.2
-          - regex==2026.11.9
-          - requests==2.34.2
-          - requests-toolbelt==1.0.0
-          - rsa==4.9.1
-          - s3transfer==0.11.3
-          - scikit-learn==1.6.1
-          - scipy==1.15.1
-          - setuptools==74.0.0
-          - six==1.16.0
-          - skops==0.16.0
-          - smmap==5.0.0
-          - sniffio==1.3.0
-          - sqlalchemy==2.1.8
-          - sqlparse==0.5.3
-          - starlette==0.46.2
-          - tabulate==0.10.0
-          - tenacity==9.0.0
-          - threadpoolctl==3.5.0
-          - tiktoken==0.14.0
-          - tqdm==4.70.1
-          - truststore==0.10.5
-          - typing-extensions==4.16.0
-          - typing-inspect==0.9.0
-          - typing-inspection==0.4.5
-          - tzdata==2026.5
-          - unitycatalog-ai==0.3.2
-          - unitycatalog-client==0.4.0
-          - unitycatalog-langchain==0.2.0
-          - urllib3==2.3.0
-          - uuid-utils==0.19.0
-          - uvicorn==0.34.2
-          - wcwidth==0.9.4
-          - websockets==17.4
-          - werkzeug==3.1.9
-          - wrapt==1.17.0
-          - xxhash==4.1.0
-          - yarl==1.25.1
-          - zipp==3.21.0
-          - zstandard==0.23.0
-          - pg8000==1.31.5
-          - scramp==1.4.5
-          - asn1crypto==1.5.1
+          - -r ${workspace.file_path}/src/teams/platform-intelligence/configs/requirements.lock
+
 targets:
   fevm:
     default: true
