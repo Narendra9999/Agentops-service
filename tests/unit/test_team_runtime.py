@@ -71,3 +71,20 @@ def test_framework_build_stages_only_framework_sources(tmp_path, monkeypatch):
     result = Path(stage_framework_source(str(project)))
     assert (result / 'src/framework/__init__.py').exists()
     assert not (result / 'src/customer_secrets').exists()
+
+
+def test_team_quality_gate_covers_all_six_native_scorers():
+    from agent_development.agent_evaluation.evaluation.scorer_loader import get_thresholds
+    config = yaml.safe_load((ROOT/'src/teams/platform-intelligence/config.yaml').read_text())
+    thresholds = get_thresholds(config['evaluation'])
+    assert thresholds == {name + '/mean': 0.8 for name in (
+        'correctness', 'relevance_to_query', 'safety', 'cost_grounding',
+        'platform_evidence', 'routing',
+    )}
+
+
+@pytest.mark.parametrize('metrics', [{}, {'routing/mean': float('nan')}, {'routing/mean': .5}])
+def test_combined_notebook_gate_rejects_missing_nonfinite_and_low_scores(metrics):
+    from framework.evaluation.evaluation_pipeline import compute_quality_gate
+    gate = compute_quality_gate({'routing/mean': .8}, metrics, 1.0, .8)
+    assert not gate['gate_passed']

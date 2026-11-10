@@ -561,12 +561,10 @@ def compute_quality_gate(quality_thresholds: dict, eval_metrics: dict,
     quality_gate_results = {}
     for metric_name, threshold in quality_thresholds.items():
         actual = eval_metrics.get(metric_name)
-        if actual is None:
-            continue
         quality_gate_results[metric_name] = {
             "actual": actual,
             "threshold": threshold,
-            "passed": actual >= threshold,
+            "passed": actual is not None and math.isfinite(actual) and actual >= threshold,
         }
     quality_passed = all(g["passed"] for g in quality_gate_results.values()) if quality_gate_results else True
     guardrail_passed = guardrail_accuracy >= guardrail_threshold
@@ -590,7 +588,8 @@ def print_quality_gate_report(title: str, quality_gate_results: dict, guardrail_
     if quality_gate_results:
         for metric_name, gate in sorted(quality_gate_results.items()):
             status = "PASS" if gate["passed"] else "FAIL"
-            print(f"  {metric_name}: {gate['actual']:.3f} (threshold: {gate['threshold']}) {status}")
+            actual_text = "missing" if gate["actual"] is None else f"{gate['actual']:.3f}"
+            print(f"  {metric_name}: {actual_text} (threshold: {gate['threshold']}) {status}")
     else:
         print("  Quality: No configured threshold metrics found in evaluation output")
     fmt = f".{guardrail_pct_decimals}%"

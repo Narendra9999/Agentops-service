@@ -307,9 +307,10 @@ def get_thresholds(eval_config: dict) -> dict:
     # We don't enforce hard thresholds on these by default — they are informational.
     # Users can add explicit thresholds via per-scorer config if needed.
 
-    for name, cfg in eval_config.get("builtin_scorers", {}).items():
-        if cfg.get("enabled", True) and cfg.get("threshold") is not None:
-            thresholds[name + "/mean"] = cfg["threshold"]
+    if "builtin" in modes:
+        for name, cfg in eval_config.get("builtin_scorers", {}).items():
+            if cfg.get("enabled", True) and cfg.get("threshold") is not None:
+                thresholds[name + "/mean"] = cfg["threshold"]
     for entry in eval_config.get("custom_scorers", []):
         if entry.get("enabled", True):
             thresholds[entry["name"] + "/mean"] = entry.get("threshold", global_threshold)

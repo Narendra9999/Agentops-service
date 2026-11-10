@@ -233,6 +233,7 @@ except Exception:
 
 import mlflow
 from mlflow import MlflowClient
+from framework.team_runtime import candidate_model_uri
 
 # Load the registered model via mlflow.pyfunc.load_model()
 # This tests the exact same code path the serving container uses
