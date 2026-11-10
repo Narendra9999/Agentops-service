@@ -41,7 +41,8 @@ def main():
         context={'owner_id':owner,'conversation_id':str(uuid.uuid4()),'summary':'','preferences':{},
                  'expires_at':int(time.time())+300,
                  'messages_sha256':hashlib.sha256(json.dumps(messages,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
-        payload={'input':messages,'custom_inputs':{'application_context':sign_context(context,secret)},'stream':True}
+        payload={'input':messages,'custom_inputs':{'application_context':sign_context(context,secret),
+                                                  'stream_activity':True},'stream':True}
         events=[];items=[];completed=False;custom={}
         started=time.monotonic()
         with requests.post(w.config.host.rstrip('/')+'/serving-endpoints/'+args.endpoint+'/invocations',

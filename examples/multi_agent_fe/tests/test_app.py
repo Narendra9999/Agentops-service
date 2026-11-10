@@ -151,7 +151,7 @@ def test_serving_proxy_preserves_activity_and_final_metadata(monkeypatch, comple
     assert events[-1][1]['custom_outputs']['trace_id'] == 'tr-123'
     assert calls[0][1]['json']['stream'] is True
     assert calls[0][1]['timeout'] == (20, 240)
-    assert 'custom_inputs' not in calls[0][1]['json']
+    assert calls[0][1]['json']['custom_inputs'] == {'stream_activity': True}
     assert len(calls) == 2 and calls[1] == 'closed'
 
 

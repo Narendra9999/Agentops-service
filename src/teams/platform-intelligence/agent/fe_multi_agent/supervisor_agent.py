@@ -105,6 +105,11 @@ def stream_prediction(predict, request):
     from mlflow.types.responses import ResponsesAgentStreamEvent
     events = queue.Queue()
     stopped = threading.Event()
+    # Playground supports the documented output-item stream. The custom App
+    # explicitly opts into richer progress/lifecycle events; Python accepting an
+    # event type is not evidence that every serving client can render it.
+    custom_inputs = getattr(request, 'custom_inputs', None) or {}
+    activity_stream = custom_inputs.get('stream_activity') is True
     response_id = str(uuid.uuid4())
     progress_response = {'id': response_id, 'object': 'response',
                          'status': 'in_progress', 'output': []}
@@ -138,22 +143,27 @@ def stream_prediction(predict, request):
             try:
                 kind, data = events.get(timeout=2)
             except queue.Empty:
-                yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response)
+                if activity_stream:
+                    yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response)
                 continue
             if kind == 'activity':
-                yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response,
-                                                custom_outputs={'activity': data})
+                if activity_stream:
+                    yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response,
+                                                    custom_outputs={'activity': data})
             elif kind == 'result':
                 for index, item in enumerate(data.output):
                     yield ResponsesAgentStreamEvent(type='response.output_item.done', item=item, output_index=index,
                                                     custom_outputs=data.custom_outputs)
                 complete = {'id': response_id, 'object': 'response', 'status': 'completed',
                             **data.model_dump(exclude_none=True)}
-                yield ResponsesAgentStreamEvent(type='response.completed', response=complete,
-                                                custom_outputs=data.custom_outputs)
+                if activity_stream:
+                    yield ResponsesAgentStreamEvent(type='response.completed', response=complete,
+                                                    custom_outputs=data.custom_outputs)
                 return
             else:
                 mlflow.update_current_trace(state="ERROR")
+                if not activity_stream:
+                    raise RuntimeError(data['message'])
                 yield ResponsesAgentStreamEvent(type='error', message=data['message'],
                                                 custom_outputs={'failure': data})
                 return

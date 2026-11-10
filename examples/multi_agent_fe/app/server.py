@@ -116,9 +116,9 @@ def invoke_stream(body):
     w = WorkspaceClient()
     url = w.config.host.rstrip('/') + '/serving-endpoints/' + os.environ['SERVING_ENDPOINT'] + '/invocations'
     payload = {'input': [m.model_dump() for m in body.messages],
-               'stream': True}
+               'stream': True, 'custom_inputs': {'stream_activity': True}}
     if body._agent_context:
-        payload['custom_inputs'] = {'application_context': body._agent_context}
+        payload['custom_inputs']['application_context'] = body._agent_context
     output, custom, usage, completed_received = [], {}, None, False
     with requests.post(url, headers=w.config.authenticate(), json=payload,
                        stream=True, timeout=(20, 240)) as response:
