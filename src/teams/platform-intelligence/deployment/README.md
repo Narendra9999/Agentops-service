@@ -110,12 +110,52 @@ Validation evidence is retained locally under the ignored
 `examples/multi_agent_fe/validation-results/` directory.
 
 
-## Pipeline refactor (pending rollout)
+## Pipeline refactor validation
 
 Common notebook startup, inference invocation and metric gates now use shared
 helpers. Registration builds one framework wheel and reuses it for upload.
 Resources and sanity questions are explicitly configured by the team. Common
 parameters are job-level parameters pushed to the original six notebook tasks.
 See [the contract](../../../../docs/development/team-pipeline-contract.md).
-Strict bundle validation passed; this refactor has not been deployed or executed
-in FEVM. Earlier rollout evidence above applies to earlier source versions.
+FEVM run `470860625546934` completed all six original notebook stages and
+promoted model version 5. Pre- and post-deployment evaluation each scored 1.0
+for correctness, relevance, safety, routing, platform evidence and cost grounding;
+all 17 guardrail fixtures passed. Smoke checks passed retrieval, normal queries,
+injection blocking, off-topic handling and grounding. Registration initially
+exposed a removed-helper reference; that regression was fixed and covered by a
+startup test before this successful rerun.
+
+The separate single-agent fixture registered successfully but its quality gate
+blocked deployment because retrieval/answer evidence did not meet 0.8 thresholds.
+See the [single-agent validation status](../../platform-engineering-test/README.md).
+No threshold was lowered and the original single-agent endpoint was untouched.
+
+## AgentObserver disabled: FEVM version 6
+
+Run [736913769886698](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/736913769886698?o=7474644082064164)
+completed all six original AgentOPS stages and promoted version 6 on
+`fe-platform-intelligence`. The registered artifact was checked directly:
+`observer_enabled: false`, `memory_enabled: true`.
+
+All six quality metrics remained 1.0 before and after deployment, matching the
+observer-enabled version 5 baseline. All 17 guardrail fixtures and the original
+serving smoke checks passed. The existing Vector Search index was reused.
+
+Three direct streaming scenarios verified cost-only, platform-only and combined
+routing using native LangGraph worker nodes. Each trace is OK, has model token
+usage and persisted token/cost tags, and has no AgentObserver wrapper or invocation
+attributes. Genie-related requests retain `partial_estimate` cost coverage.
+Four signed-context scenarios verified Lakebase memory writes, fresh-session
+recall, platform retrieval and Genie routing. Their traces are OK with the
+observer flag false; memory tools and progress events remain available.
+
+- Native cost trace: `tr-0ce4bca760a4830cc8410d1165cc87c2`.
+- Native platform trace: `tr-aad6472aa8b53ad589720e499c367aad`.
+- Native combined trace: `tr-958554bd604ff975a173eaf5f90e1e2c`.
+- Cross-session memory recall: `tr-2cfd051d13c33419cd7da9d39729a799`.
+
+Local checks passed 114 multi-agent tests and 16 team/startup tests, plus a real
+local MLflow autologging check of the native graph without observer wrappers.
+The updated bundle passed strict validation. App deployment remains deferred.
+Machine-readable sanitized results are in
+[validation-observer-disabled.json](validation-observer-disabled.json).

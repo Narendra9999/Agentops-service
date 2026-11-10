@@ -1,0 +1,155 @@
+{
+  "endpoint": "fe-platform-intelligence",
+  "model_version": "6",
+  "observer_enabled": false,
+  "source_commit": "2ff9757",
+  "pipeline_run_id": 736913769886698,
+  "pipeline_result": "SUCCESS",
+  "pipeline_url": "https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/736913769886698?o=7474644082064164",
+  "stages": {
+    "smoke_test": "SUCCESS",
+    "deploy_agent": "SUCCESS",
+    "register_model": "SUCCESS",
+    "post_deployment_eval": "SUCCESS",
+    "pre_deployment_eval": "SUCCESS",
+    "vector_search_setup": "SUCCESS"
+  },
+  "pre_deployment": {
+    "gate_passed": true,
+    "quality_passed": true,
+    "guardrail_accuracy": 1.0,
+    "quality_scores": {
+      "cost_grounding/mean": 1.0,
+      "platform_evidence/mean": 1.0,
+      "correctness/mean": 1.0,
+      "relevance_to_query/mean": 1.0,
+      "safety/mean": 1.0,
+      "routing/mean": 1.0
+    },
+    "evaluation_id": "370e4dd4-a186-4bc9-aaca-1633d0cb77cb"
+  },
+  "post_deployment": {
+    "passed": true,
+    "quality_passed": true,
+    "quality_scores": {
+      "cost_grounding/mean": 1.0,
+      "platform_evidence/mean": 1.0,
+      "correctness/mean": 1.0,
+      "relevance_to_query/mean": 1.0,
+      "safety/mean": 1.0,
+      "routing/mean": 1.0
+    },
+    "guardrail_accuracy": 1.0,
+    "evaluation_id": "d905f3b3-e14a-4df4-9f05-5d49af07f7d0"
+  },
+  "native_tracing": {
+    "cost": {
+      "trace_id": "tr-0ce4bca760a4830cc8410d1165cc87c2",
+      "state": "OK",
+      "workers": [
+        "cost_estimation"
+      ],
+      "token_usage_present": true,
+      "observer_invocation_attributes_present": false,
+      "persisted_usage": {
+        "trace_id": "tr-0ce4bca760a4830cc8410d1165cc87c2",
+        "total_tokens": 6349,
+        "cost_usd": 0.025863,
+        "cost_status": "partial_estimate",
+        "usage_status": "partial"
+      }
+    },
+    "platform": {
+      "trace_id": "tr-aad6472aa8b53ad589720e499c367aad",
+      "state": "OK",
+      "workers": [
+        "platform_docs"
+      ],
+      "token_usage_present": true,
+      "observer_invocation_attributes_present": false,
+      "persisted_usage": {
+        "trace_id": "tr-aad6472aa8b53ad589720e499c367aad",
+        "total_tokens": 9529,
+        "cost_usd": 0.033461,
+        "cost_status": "estimated",
+        "usage_status": "complete"
+      }
+    },
+    "combined": {
+      "trace_id": "tr-958554bd604ff975a173eaf5f90e1e2c",
+      "state": "OK",
+      "workers": [
+        "cost_estimation",
+        "platform_docs"
+      ],
+      "token_usage_present": true,
+      "observer_invocation_attributes_present": false,
+      "persisted_usage": {
+        "trace_id": "tr-958554bd604ff975a173eaf5f90e1e2c",
+        "total_tokens": 48511,
+        "cost_usd": 0.090016,
+        "cost_status": "partial_estimate",
+        "usage_status": "partial"
+      }
+    }
+  },
+  "memory": {
+    "remember": {
+      "trace_id": "tr-79512777a5e00906337e1d3673778dd0",
+      "state": "OK",
+      "observer_enabled": false,
+      "memory_tools": [
+        "list_memory_files",
+        "write_memory_file"
+      ],
+      "workers": []
+    },
+    "cross_session_recall": {
+      "trace_id": "tr-2cfd051d13c33419cd7da9d39729a799",
+      "state": "OK",
+      "observer_enabled": false,
+      "memory_tools": [
+        "list_memory_files",
+        "read_memory_file"
+      ],
+      "workers": []
+    },
+    "platform": {
+      "trace_id": "tr-46244ef51cd8810ff37f8d22679a1a32",
+      "state": "OK",
+      "observer_enabled": false,
+      "memory_tools": [
+        "list_memory_files"
+      ],
+      "workers": [
+        "platform_docs"
+      ]
+    },
+    "cost": {
+      "trace_id": "tr-2b2273b82ff9524c6b499d16651e3848",
+      "state": "OK",
+      "observer_enabled": false,
+      "memory_tools": [
+        "list_memory_files",
+        "read_memory_file"
+      ],
+      "workers": [
+        "cost_estimation"
+      ]
+    }
+  },
+  "local_tests": {
+    "multi_agent": 114,
+    "team_and_startup": 16
+  },
+  "single_agent_validation": {
+    "run_id": 1064333894131807,
+    "result": "BLOCKED_BY_QUALITY_GATE",
+    "correctness": 0.6666666666666666,
+    "relevance": 0.6666666666666666,
+    "platform_evidence": 0.6666666666666666,
+    "threshold": 0.8,
+    "existing_endpoint_modified": false
+  },
+  "app_deployed": false
+}
