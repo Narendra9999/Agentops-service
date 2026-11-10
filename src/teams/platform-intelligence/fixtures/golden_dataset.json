@@ -1,0 +1,17 @@
+[
+  {
+    "request": "A scheduled batch takes 2 hours per run. What inputs do you still need before estimating monthly cost? Do not assume rates or missing workload facts.",
+    "expected_response": "asks for missing workload inputs and run frequency; does not invent a monetary estimate from incomplete inputs",
+    "context": "platform_intelligence"
+  },
+  {
+    "request": "Explain how MLflow tracing helps debug a LangGraph supervisor with specialist agents. Cite Databricks documentation.",
+    "expected_response": "agent calls and tool operations; documentation source URLs",
+    "context": "platform_intelligence"
+  },
+  {
+    "request": "Use Genie to identify the information needed for a monthly batch workload estimate, then retrieve Databricks documentation about serverless jobs. Cite sources and do not invent a quote.",
+    "expected_response": "missing cost inputs are explicit; platform guidance is supported by documentation URLs",
+    "context": "platform_intelligence"
+  }
+]

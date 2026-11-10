@@ -1,0 +1,10 @@
+command: [uvicorn, server:app, --host, 0.0.0.0, --port, "8000"]
+env:
+  - name: SERVING_ENDPOINT
+    valueFrom: agent-endpoint
+  - name: TRACE_EXPERIMENT_ID
+    value: "4384417075366092"
+  - name: WORKSPACE_ID
+    value: "7474644082064164"
+  - name: HISTORY_POSTGRES_ENDPOINT
+    value: projects/fe-agentops-multi/branches/production/endpoints/primary

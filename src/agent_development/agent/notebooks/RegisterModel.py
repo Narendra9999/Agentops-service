@@ -195,6 +195,7 @@ configure_uc_trace_experiment(
 print(f"MLflow experiment: {experiment_name}")
 
 # Publish experiment_id for downstream tasks (pre/deploy/post notebooks).
+experiment_id = ""
 try:
     experiment = mlflow.get_experiment_by_name(experiment_name)
     experiment_id = (experiment.experiment_id if experiment else "")
@@ -384,6 +385,8 @@ if vs_primary.get("index"):
             "index": vs_primary.get("index"),
         })
 
+if agent_config.get("multi_agent") and experiment_id:
+    agent_config.setdefault("tracing", {})["experiment_id"] = str(experiment_id)
 runtime_config = "/tmp/runtime_config.yaml"
 with open(runtime_config, "w") as f:
     yaml.dump(agent_config, f, default_flow_style=False)
@@ -427,15 +430,14 @@ def collect_vs_indexes(cfg: dict) -> list:
     return deduped
 
 vs_indexes_fq = collect_vs_indexes(agent_config)
-if not vs_indexes_fq:
+if not vs_indexes_fq and not agent_config.get("multi_agent"):
     raise ValueError(
         "No vector search index resolved from runtime config. "
         "Provide vector_search.primary.index or vector_search.indexes[*].index."
     )
 
-resources = [
-    DatabricksServingEndpoint(endpoint_name=resolved_llm_endpoint),
-]
+from framework.model_resources import language_model_resources
+resources = language_model_resources(agent_config, resolved_llm_endpoint)
 resources.extend(DatabricksVectorSearchIndex(index_name=i) for i in vs_indexes_fq)
 print(f"Resource: VS indexes {', '.join(vs_indexes_fq)}")
 

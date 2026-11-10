@@ -55,3 +55,14 @@ See [docs/agentops-setup.md](docs/agentops-setup.md) for the full setup guide.
 
 **2.0.1** — `src/` layout, DAB-aligned, air-gapped compatible
 # Agentops-service
+
+Proposed architecture: [Multi-agent AgentOPS analysis and design](docs/design/multi-agent-agentops.md), with example configuration and evaluation scenarios. This proposal is documentation; the multi-agent runtime is not yet implemented.
+
+### Supervisor-only multi-agent team
+
+[`src/teams/platform-intelligence`](src/teams/platform-intelligence/README.md)
+provides the standard `Agent.py` / `ChatModel` integration for the existing
+ResponsesAgent supervisor. It calls existing Platform knowledge and Cost intelligence
+workers from config, with AgentOPS guardrails, tracing, usage and evaluation.
+Set the real knowledge endpoint and skip Vector Search setup for this team.
+Worker deployment and internal memory remain owned by the workers.

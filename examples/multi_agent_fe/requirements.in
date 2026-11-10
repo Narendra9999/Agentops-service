@@ -1,0 +1,12 @@
+langgraph==0.6.11
+langgraph-prebuilt==0.6.5
+langgraph-sdk==0.2.12
+langchain-core==0.3.81
+databricks-langchain==0.8.0
+mlflow[databricks]==3.11.1
+databricks-sdk>=0.81
+pyyaml>=6
+fastapi==0.123.0
+uvicorn>=0.30
+pytest>=8
+httpx>=0.27

@@ -1,0 +1,50 @@
+bundle:
+  name: fe-platform-agent-team
+
+variables:
+  endpoint_name:
+    description: Existing deployed ResponsesAgent endpoint name
+  experiment_id:
+    description: MLflow experiment containing application traces
+  judge_model:
+    default: databricks-gpt-oss-120b
+
+resources:
+  apps:
+    chat:
+      name: fe-platform-team-${bundle.target}
+      description: Platform engineering agent team — synthetic FE demo
+      source_code_path: ./app
+      resources:
+        - name: agent-endpoint
+          serving_endpoint:
+            name: ${var.endpoint_name}
+            permission: CAN_QUERY
+  jobs:
+    daily_monitor:
+      name: fe-platform-team-monitor-${bundle.target}
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 0 7 * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: score_captured_traces
+          notebook_task:
+            notebook_path: ./notebooks/03_DailyMonitor.py
+            base_parameters:
+              project_root: ${workspace.file_path}
+              experiment_id: ${var.experiment_id}
+              judge_model: ${var.judge_model}
+          environment_key: monitor
+      environments:
+        - environment_key: monitor
+          spec:
+            client: "4"
+            dependencies:
+              - "mlflow[databricks]==3.11.1"
+
+targets:
+  fevm:
+    default: true
+    mode: development

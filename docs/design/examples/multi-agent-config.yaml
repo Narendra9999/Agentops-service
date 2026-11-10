@@ -1,0 +1,160 @@
+# Proposed AgentOPS configuration v2. Design example; requires implementation.
+# Configures observation and evaluation of an existing customer application.
+schema_version: 2
+system:
+  id: enterprise_assistant
+  application_version_ref: CUSTOMER_RELEASE_MANIFEST
+  environment: production
+
+integration:
+  mode: observe_only
+  adapters:
+    - id: customer_runtime
+      type: native_callbacks
+      runtime_ref: CUSTOMER_EXISTING_RUNTIME
+      mapping_ref: customer_callback_mapping_v1
+    - id: customer_events
+      type: explicit_events
+      schema_version: 1
+  preserve_application_behavior: true
+  telemetry_failure: fail_open_with_health_alert
+  # No application scheduling, retry, context or memory configuration here.
+
+agents:
+  supervisor:
+    role: coordinator
+    selector: {attribute: customer.agent_id, equals: supervisor}
+  docs:
+    role: specialist
+    selector: {attribute: customer.agent_id, equals: docs}
+  finance:
+    role: specialist
+    selector: {attribute: customer.agent_id, equals: finance}
+
+context_observation:
+  enabled: true
+  required_for_application_execution: false
+  event_mapping:
+    handoff: customer.context.shared
+    merge: customer.context.merged
+  fields:
+    context_id: payload.context_id
+    version: payload.version
+    source_invocation: payload.source_invocation_id
+    target_invocation: payload.target_invocation_id
+    evidence_refs: payload.evidence_refs
+    consumed_results: payload.consumed_result_ids
+  absent_metadata: report_insufficient_evidence
+
+memory_observation:
+  enabled: true
+  required_for_application_execution: false
+  event_mapping:
+    read: customer.memory.read
+    write: customer.memory.write
+    delete: customer.memory.delete
+  fields:
+    operation_id: payload.operation_id
+    owner_invocation: payload.invocation_id
+    memory_class: payload.memory_class
+    scope_ref: payload.pseudonymous_scope_ref
+    revision: payload.revision
+    outcome: payload.outcome
+    latency_ms: payload.latency_ms
+  absent_metadata: report_insufficient_evidence
+  # Customer retains all backend, access, retention and concurrency controls.
+
+capture:
+  default: metadata_only
+  private_scratchpad: exclude
+  redact_before_export: true
+  content_capture: disabled
+  evidence_resolver_ref: CUSTOMER_APPROVED_REDACTED_EVIDENCE_RESOLVER
+  trusted_identity_mapping_ref: CUSTOMER_AUTHENTICATED_IDENTITY_MAPPING
+
+tracing:
+  destination_ref: AGENTOPS_MLFLOW_EXPERIMENT
+  propagation: integrate_with_existing_runtime
+  deduplicate_native_spans: true
+  task_local_observation_state: true
+  persistence_canary: true
+  health_reporting: true
+
+guardrails:
+  preserve_existing_configured_controls: true
+  additional_multi_agent_checks:
+    enabled: false
+    # Each enabled check must declare boundary, mapping, observe/enforce mode,
+    # failure action and any effect on streaming. No implicit new enforcement.
+    bindings: []
+
+evaluation:
+  dataset_ref: benchmarks/enterprise_assistant@1
+  scenario_schema_version: 2
+  offline:
+    application_runner_ref: CUSTOMER_APPROVED_TEST_ENTRYPOINT
+    fixture_setup_ref: CUSTOMER_ISOLATED_FIXTURE_SETUP
+    fixture_teardown_ref: CUSTOMER_ISOLATED_FIXTURE_TEARDOWN
+    execute_once_per_scenario_repetition: true
+  judges:
+    endpoint_ref: APPROVED_IN_REGION_JUDGE_ENDPOINT
+    rubric_version: 1
+    alignment_version: 1
+  scorers:
+    - id: system_correctness
+      category: builtin
+      mechanism: llm_judge
+      scope: system
+      implementation_ref: builtin.Correctness
+      modes: [factual]
+      requires: [final_output, expectations.expected_response]
+      score: {type: boolean, normalization: boolean_0_1}
+    - id: routing_accuracy
+      category: domain
+      mechanism: deterministic
+      scope: trajectory
+      implementation_ref: agentops.routing_expectations
+      requires: [observed_graph, expectations.routes]
+      score: {type: boolean, normalization: boolean_0_1}
+    - id: docs_domain_quality
+      category: domain
+      mechanism: llm_judge
+      scope: agent
+      selector: {agent_id: docs}
+      implementation_ref: team.docs_rubric
+      requires: [agent_input, agent_output, approved_evidence]
+      score: {type: integer, range: [1, 5], normalization: linear_0_1}
+    - id: handoff_completeness
+      category: domain
+      mechanism: deterministic
+      scope: edge
+      implementation_ref: agentops.handoff_expectations
+      requires: [context_events, expectations.handoffs]
+      score: {type: boolean, normalization: boolean_0_1}
+    - id: memory_transition
+      category: domain
+      mechanism: deterministic
+      scope: conversation
+      implementation_ref: agentops.memory_expectations
+      requires: [memory_events, expectations.memory]
+      score: {type: boolean, normalization: boolean_0_1}
+  missing_required_evidence: insufficient_evidence
+  release_gates:
+    preserve_legacy_blocking_gates: true
+    new_quality:
+      mode: advisory
+      thresholds_ref: BUSINESS_APPROVED_THRESHOLDS
+      minimum_counts_ref: APPROVED_SLICE_COVERAGE
+      baseline_ref: APPROVED_CUSTOMER_RELEASE
+  production:
+    source: captured_traces_and_events
+    payload_fallback: final_output_metrics_only
+    never_reinvoke_application: true
+    sampling:
+      deterministic_assessments: 1.0
+      llm_judge: 0.2
+      selection: stable_execution_hash_stratified
+      diagnostic_failures: separate_cohort
+    late_event_grace_seconds: 300
+    idempotent_results: true
+    quality_alerts: advisory

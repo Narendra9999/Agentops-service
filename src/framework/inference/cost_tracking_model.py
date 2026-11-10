@@ -114,6 +114,14 @@ def _wrap_pyfunc_result(result):
     )
 
 
+def _record_usage(response):
+    try:
+        from framework.observability.token_usage import emit_response_usage
+        emit_response_usage(response)
+    except Exception:
+        logger.warning("Response usage tag export failed", exc_info=False)
+
+
 class CostTrackingResponsesModel(ResponsesAgent):
     """Responses serving wrapper for native agents and PythonModel implementations.
 
@@ -136,17 +144,30 @@ class CostTrackingResponsesModel(ResponsesAgent):
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         if self._inner_is_responses_agent:
-            return self._inner.predict(request)
+            response = self._inner.predict(request)
+            _record_usage(response)
+            return response
         result = self._inner.predict(
             context=None, model_input=request.model_dump(exclude_none=True),
         )
-        return _wrap_pyfunc_result(result)
+        response = _wrap_pyfunc_result(result)
+        _record_usage(response)
+        return response
 
     def predict_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         if self._inner_is_responses_agent:
-            yield from self._inner.predict_stream(request)
+            last_usage = None
+            try:
+                for event in self._inner.predict_stream(request):
+                    from framework.observability.token_usage import response_usage
+                    if response_usage(event) is not None:
+                        last_usage = event
+                    yield event
+            finally:
+                if last_usage is not None:
+                    _record_usage(last_usage)
         else:
             response = self.predict(request)
             for item in response.output:

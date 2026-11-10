@@ -1,0 +1,11 @@
+{
+  "supervisor_model": "system.ai.claude-sonnet-4-6",
+  "model_transport": "ai_gateway",
+  "platform_endpoint": "REQUIRED_EXISTING_KNOWLEDGE_ENDPOINT",
+  "genie_space_id": "REQUIRED_EXISTING_GENIE_AGENT",
+  "cost_endpoint": "",
+  "experiment_id": "REQUIRED_EXPERIMENT_ID",
+  "prompt_manifest": "REQUIRED_PINNED_SUPERVISOR_PROMPT_MANIFEST",
+  "observer_enabled": true,
+  "max_steps": 30
+}

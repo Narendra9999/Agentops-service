@@ -1,0 +1,163 @@
+{
+  "schema_version": 2,
+  "dataset_id": "enterprise_assistant",
+  "version": 1,
+  "documentation_only": true,
+  "scenarios": [
+    {
+      "id": "parallel-evidence-conflict",
+      "mode": "factual",
+      "coverage_labels": [
+        "parallel",
+        "conflicting_evidence",
+        "synthesis"
+      ],
+      "data_snapshot_refs": {
+        "documents": "fixture:docs-v1",
+        "finance": "fixture:finance-v1"
+      },
+      "memory_seed": [],
+      "inputs": {
+        "turns": [
+          {
+            "thread": "A",
+            "query": "What was Q1 revenue, and does the planning document agree?"
+          }
+        ]
+      },
+      "expectations": {
+        "expected_response": "The finance snapshot reports 100 million; the planning document reports 90 million. Explain the discrepancy without treating the document forecast as actual revenue.",
+        "routes": {
+          "required": [
+            "docs",
+            "finance"
+          ],
+          "prohibited": [],
+          "order_constraints": [
+            [
+              "docs.complete",
+              "supervisor.synthesize"
+            ],
+            [
+              "finance.complete",
+              "supervisor.synthesize"
+            ]
+          ]
+        },
+        "agents": {
+          "finance": {
+            "expected_output": {
+              "revenue": 100,
+              "unit": "million"
+            }
+          },
+          "docs": {
+            "expected_document_ids": [
+              "q1-plan-v1"
+            ]
+          }
+        },
+        "handoffs": {
+          "required_fields": [
+            "task",
+            "user_request"
+          ],
+          "preserve_source_ids": true
+        },
+        "memory": {
+          "durable_writes": []
+        }
+      }
+    },
+    {
+      "id": "preference-correction-across-sessions",
+      "mode": "factual",
+      "coverage_labels": [
+        "multi_turn",
+        "long_term_memory",
+        "correction",
+        "cross_session"
+      ],
+      "data_snapshot_refs": {
+        "tools": "fixture:readonly-tools-v1"
+      },
+      "identity_fixture": {
+        "tenant": "tenant-A",
+        "principal": "user-1",
+        "trusted": true
+      },
+      "memory_seed": [
+        {
+          "key": "preferred_currency",
+          "value": "USD",
+          "revision": 1,
+          "consent": true
+        }
+      ],
+      "inputs": {
+        "turns": [
+          {
+            "thread": "A",
+            "query": "Please remember that my preferred currency is now EUR."
+          },
+          {
+            "thread": "B",
+            "query": "Which currency do I prefer?"
+          }
+        ]
+      },
+      "expectations": {
+        "expected_response": "Your preferred currency is EUR.",
+        "memory": {
+          "after_turn_1": {
+            "preferred_currency": "EUR"
+          },
+          "turn_2_reads": [
+            "preferred_currency"
+          ],
+          "stale_values_must_not_be_used": [
+            "USD"
+          ],
+          "expected_customer_writer": "supervisor"
+        }
+      }
+    },
+    {
+      "id": "strategic-critique",
+      "mode": "strategic_critique",
+      "coverage_labels": [
+        "rubric_only",
+        "mode_coverage"
+      ],
+      "data_snapshot_refs": {
+        "documents": "fixture:strategy-v1"
+      },
+      "memory_seed": [],
+      "inputs": {
+        "turns": [
+          {
+            "thread": "A",
+            "query": "Pressure-test the proposed expansion strategy."
+          }
+        ]
+      },
+      "expectations": {
+        "rubric": [
+          "Identify assumptions",
+          "Use source-backed counter-evidence",
+          "Name risks and uncertainty"
+        ],
+        "routes": {
+          "required": [
+            "docs"
+          ],
+          "prohibited": []
+        },
+        "not_applicable_scorers": [
+          "system_correctness"
+        ]
+      }
+    }
+  ],
+  "fixture_ownership": "Customer-provided isolated test setup and teardown; AgentOPS does not manage production memory."
+}

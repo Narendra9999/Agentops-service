@@ -1,0 +1,9 @@
+.venv/
+.databricks/
+__pycache__/
+.pytest_cache/
+*.pyc
+validation-results/
+bundle.overrides.json
+prompt-manifest.json
+runtime.json

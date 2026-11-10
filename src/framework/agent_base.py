@@ -195,28 +195,16 @@ def invoke_with_usage_tracking(runnable, payload, request_context: Optional[dict
 
 
 def _normalize_usage_dict(usage: dict) -> dict:
-    """Normalize provider-specific usage payloads to TokenTracker schema."""
-    if not isinstance(usage, dict):
+    """Normalize Responses/OpenAI and LangChain counts to TokenTracker fields."""
+    from framework.observability.token_usage import normalize_usage
+    normalized = normalize_usage(usage)
+    if normalized is None:
         return {}
-
-    prompt_tokens = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
-    completion_tokens = int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
-    output_details = usage.get("output_tokens_details", {}) or {}
-    reasoning_tokens = int(usage.get("reasoning_tokens", usage.get("thinking_tokens", output_details.get("reasoning_tokens", 0))) or 0)
-    total_tokens = int(usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens))
-
-    prompt_details = usage.get("prompt_tokens_details", usage.get("input_tokens_details", {})) or {}
-    cached_tokens = int(
-        usage.get("cached_tokens", prompt_details.get("cached_tokens", usage.get("cache_creation_input_tokens", 0))) or 0
-    )
-
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "reasoning_tokens": reasoning_tokens,
-        "total_tokens": total_tokens,
-        "cached_tokens": cached_tokens,
-    }
+    return {"prompt_tokens": normalized["input_tokens"],
+            "completion_tokens": normalized["output_tokens"],
+            "total_tokens": normalized["total_tokens"],
+            "cached_tokens": normalized["cached_tokens"],
+            "reasoning_tokens": normalized["reasoning_tokens"]}
 
 
 def _track_llm_usage_from_usage_metadata(callback, request_context: Optional[dict], model_name: str) -> bool:
@@ -317,6 +305,9 @@ def _extract_usage_from_llm_callback_response(response) -> Optional[dict]:
             message = getattr(generation, "message", None)
             if message is None:
                 continue
+            usage_metadata = getattr(message, "usage_metadata", None)
+            if isinstance(usage_metadata, dict) and usage_metadata:
+                return usage_metadata
             response_metadata = getattr(message, "response_metadata", None) or {}
             if isinstance(response_metadata, dict):
                 usage = response_metadata.get("usage") or response_metadata.get("token_usage")
@@ -348,9 +339,10 @@ def _track_llm_usage_from_response(
     if request_context is None or response is None:
         return False
 
-    usage = None
+    from framework.observability.token_usage import response_usage
+    usage = response_usage(response)
 
-    if hasattr(response, "usage"):
+    if usage is None and hasattr(response, "usage"):
         usage = getattr(response, "usage")
 
     if usage is None and hasattr(response, "response_metadata"):
