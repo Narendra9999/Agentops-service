@@ -1,4 +1,4 @@
-"""Approval-gated signing bindings. Preserves existing App resources and model version."""
+"""Update approved signing bindings and model version; preserve existing App resources."""
 import argparse
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.apps import App,AppResource
@@ -15,7 +15,7 @@ def main():
     app=w.apps.get('fe-platform-team-fevm')
     resources=[r.as_dict() for r in app.resources or [] if r.name!='context-signing-key']
     resources.append({'name':'context-signing-key','secret':{'scope':'fe-agentops-context','key':'signing-key','permission':'READ'}})
-    w.apps.create_update(app_name=app.name,update_mask='resources',app=App(resources=[AppResource.from_dict(r) for r in resources])).result()
+    w.apps.create_update(app_name=app.name,update_mask='resources',app=App(name=app.name,resources=[AppResource.from_dict(r) for r in resources])).result()
     endpoint=w.serving_endpoints.get('fe-platform-agent-team')
     if endpoint.state.config_update.value!='NOT_UPDATING':raise RuntimeError('Wait for serving update completion')
     if len(endpoint.config.served_entities)!=1:raise RuntimeError('Unexpected serving topology')

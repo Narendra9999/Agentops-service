@@ -1,12 +1,52 @@
-> Current source layout: the supervisor-only implementation is under
-> `src/teams/platform-intelligence`. It references existing Platform knowledge and
-> Cost intelligence workers; the case worker is removed. The records below retain
-> historical deployment evidence and do not imply deployment of the new team config.
-> See the team README for current architecture, bindings and remaining gaps.
+> Current source layout: `src/teams/platform-intelligence`. The FEVM package
+> embeds Platform knowledge, invokes existing Genie Cost intelligence, and uses
+> a Lakebase-backed Markdown workspace. Older records below are historical.
 
 # Validation record
 
-## Agent-managed memory and embedded Platform knowledge — current validation
+## Live memory-enabled FEVM rollout — version 12
+
+- Registration run `930618086547803`: SUCCESS; registered model version **12**,
+  URI `models:/m-9982ed0c82cc43fb976e440c054f3a15`.
+- Serving endpoint `fe-platform-agent-team`: READY / NOT_UPDATING, version **12**.
+- App deployment `01f1dcbed8de15dbbb83564fa62e230b`: SUCCEEDED / RUNNING.
+  Source: `/Workspace/Users/narendra.merla@databricks.com/fe-platform-agent-team/app-memory-60baf22`.
+- Runtime OAuth identity verified Lakebase reads and existing-index retrieval.
+- Live endpoint checks passed memory write (also verified in Lakebase), recall in
+  a fresh session, embedded documentation retrieval, and Genie cost routing.
+  Only the intended specialist ran in each routing scenario.
+- Authenticated App checks passed save, recall in a new conversation, saved-history
+  lookup, conversation rename, preferences access, and memory-file soft deletion.
+  Actual deletion was verified in Lakebase at revision 2.
+- All seven smoke traces have state OK, nonzero persisted token usage and cost tags.
+  Costs are configured-rate estimates; the Genie route is labeled partial because
+  Genie internal usage is not exposed.
+- Initial App fixture used a numeric timestamp in the file name. The PII phone
+  detector rejected the note safely; recall correctly reported no saved file.
+  An alphabetic test ID resolved this fixture issue. No guardrail was disabled.
+- App assets match uploaded JavaScript hashes. This did not repeat an interactive
+  browser session; authenticated HTTP/SSE calls exercised the live App backend.
+- Prior version 11 and the previous App deployment remain available for rollback.
+  The standard AgentOPS adapter is prepared separately; this FEVM rollout uses
+  the existing standalone ResponsesAgent packaging entry point.
+
+| Live check | Trace |
+|---|---|
+| Serving memory write | `tr-531ec542b50b25ace31e0639a24027ef` |
+| Serving cross-session recall | `tr-f56379ec28bfc986840041d3155cfef1` |
+| Embedded Platform knowledge | `tr-41fdf2e7b6c6e009e78a6fcb9510ec56` |
+| Genie cost routing | `tr-c89edad139d1b40edc9cab7dc098a66a` |
+| App memory write | `tr-48211ef34b260c347e2acb782ccc1b8d` |
+| App new-conversation recall | `tr-fb0b7fa6c8f04fea7dd598671f5fe637` |
+| App test-note deletion | `tr-62ef237f374e8ba4e47f68704a2b3183` |
+
+The App validation note is soft-deleted; explicitly labeled validation conversations
+and isolated evaluation-owner file history remain as audit evidence. Detailed
+reports reside in ignored `validation-results/memory-*.json` files.
+
+## Historical validation before the file-workspace rollout
+
+## Agent-managed memory and embedded Platform knowledge — historical validation
 
 - Agent/App suite with disposable local PostgreSQL: **69 passed, 1 skipped**.
 - Framework resource/text contracts: **7 passed**. Chart checks: **9 passed**.
@@ -26,7 +66,7 @@
   file-curation interface is a separate interface decision; the storage backend
   can persist file paths/content/versions in Lakebase or use actual Volume files.
 
-## Supervisor-only AgentOPS integration — current local validation
+## Supervisor-only AgentOPS integration — historical local validation
 
 - Agent/App suite: **60 passed, 1 skipped** (optional local database coverage).
 - Framework team/resource and text-extraction checks: **6 passed**.

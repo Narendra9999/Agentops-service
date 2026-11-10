@@ -74,10 +74,10 @@ Public plan and tool activity stream while execution runs. Final text and Genie
 artifacts are released after AgentOPS post-guardrails. Stop cooperatively ends
 waiting; in-flight model, retrieval or memory calls may complete.
 
-## FEVM setup and remaining rollout
+## FEVM setup and rollout
 
-The user approved Lakebase setup, and steps 1–3 below are complete. Steps 4–5
-remain for endpoint/App rollout:
+The approved Lakebase setup and endpoint/App rollout are complete (model version
+12). The deployment applied these steps:
 
 1. Create `agent_memory.files`, `agent_memory.file_versions` and `app_history.summaries`
    in the existing Lakebase database. No existing history is deleted.
@@ -152,10 +152,37 @@ and isolated context-signing material. FEVM evaluation namespace
 `evaluation:file-memory:431b4eaf-71f6-4ac8-b936-4c5026958d13` passed persistent
 fresh-session recall, isolation, revision conflict and recovery; its file is now
 soft-deleted. This validation used the authenticated setup identity, not the
-serving principal or the App. Live serving remains unchanged until rollout.
+serving principal or the App. The later live rollout is validated below.
 
 Real-model file-tool compatibility also passed FEVM run `614766712455059`, trace
 `tr-f70a2314c4ca342de331d06eaed59815`: explicit file tools, fresh-graph recall with
 stub files, and embedded Platform retrieval. It complements the separate durable
-Lakebase check; deployed App-to-serving memory is not yet validated.
+Lakebase check; live App-to-serving validation is recorded below.
 An additional boundary test passed for unsafe paths and sensitive write rejection.
+
+## Live FEVM deployment — version 12
+
+`fe-platform-agent-team` is READY / NOT_UPDATING on UC model version **12**.
+The App is RUNNING with deployment `01f1dcbed8de15dbbb83564fa62e230b`:
+https://fe-platform-team-fevm-7474644082064164.aws.databricksapps.com
+
+The deployed package contains the supervisor and in-process Platform knowledge;
+Cost intelligence uses the existing Genie agent. Explicit file tools persist
+Markdown in Lakebase. Signed owner-scoped App context is enabled. The App's
+history, rename and preferences APIs passed authenticated checks, and uploaded
+JavaScript hashes match the running assets.
+
+Live endpoint checks passed: memory write confirmed in Lakebase, fresh-session
+recall, documentation retrieval with only Platform knowledge called, and cost
+routing with only Cost intelligence called. Live App checks passed memory write,
+recall in a new conversation, saved-history lookup, rename and test-file deletion.
+All seven resulting traces are OK and have persisted token usage and cost metadata.
+Costs are configured-rate estimates; Genie internal usage is unavailable, so its
+trace is correctly labeled `partial_estimate`.
+
+App recall trace: `tr-fb0b7fa6c8f04fea7dd598671f5fe637`.
+Cost route trace: `tr-c89edad139d1b40edc9cab7dc098a66a`.
+The validation note was soft-deleted and its revision verified in Lakebase.
+Test conversations remain labeled as deployment validation in the selected user's
+history. This rollout uses the standalone ResponsesAgent entry point; the standard
+AgentOPS adapter is prepared, but root framework deployment is a separate rollout.
