@@ -116,3 +116,29 @@ Version 2's retry failures were subsequently traced to the evaluation client's
 240-second HTTP read timeouts on Platform and combined requests, explaining the
 `None` audit responses. Version 3's signed Platform check took 67.3 seconds, but
 a single faster check does not establish a general latency improvement.
+
+### Custom App protocol and stream span names
+
+The custom App explicitly sends `custom_inputs.stream_activity: true` alongside
+its signed `application_context`. This preserves live worker/tool activity,
+completion metadata, usage and authenticated memory. Playground continues to use
+the default output-item stream. App regression coverage now checks both signed
+and unsigned requests, including interrupted completion handling.
+
+Streaming spans have explicit names:
+
+- `agentops.request.stream`: shared serving wrapper and usage accounting.
+- `platform_intelligence.stream`: team entry point and guarded response stream.
+- `supervisor.stream`: standalone supervisor streaming entry point, when used.
+
+These are delegation layers, not repeated agent executions. The team entry point
+calls the supervisor's `predict` through guardrails; it does not additionally call
+its `predict_stream`. Each streaming decorator retains MLflow's ResponsesAgent
+output reducer so final response content remains available in the trace.
+
+Validation: 109 example tests passed; 19 shared ResponsesAgent integration tests
+passed. Four additional provider tests could not run because the local test
+environment lacks `openai`. A local MLflow trace check confirmed distinct nested
+wrapper/team names, one prediction call and preserved final output. These source
+updates require a subsequent serving rollout for the new span names. App
+redeployment remains deferred; source changes alone do not update the running App.

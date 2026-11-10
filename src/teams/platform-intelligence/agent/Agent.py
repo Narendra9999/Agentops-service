@@ -67,6 +67,10 @@ class ChatModel(ResponsesAgent):
         mlflow.update_current_trace(tags=tags)
         return response
 
+    @mlflow.trace(
+        name="platform_intelligence.stream", span_type="AGENT",
+        output_reducer=ResponsesAgent.responses_agent_output_reducer,
+    )
     def predict_stream(self, request):
         # Public activity streams immediately; final output/Genie tables/usage are
         # released only after AgentOPS post-guardrails accept the final answer.

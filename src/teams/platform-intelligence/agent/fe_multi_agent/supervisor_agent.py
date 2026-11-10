@@ -93,6 +93,10 @@ class SupervisorAgent(ResponsesAgent):
                             "genie_result": result.get("genie_result"), "tags": trace_tags},
         )
 
+    @mlflow.trace(
+        name="supervisor.stream", span_type="AGENT",
+        output_reducer=ResponsesAgent.responses_agent_output_reducer,
+    )
     def predict_stream(self, request):
         yield from stream_prediction(self.predict, request)
 

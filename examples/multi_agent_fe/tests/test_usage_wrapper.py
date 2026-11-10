@@ -11,7 +11,8 @@ def wrapper(monkeypatch):
     source=Path(__file__).resolve().parents[3]/'src/framework/inference/cost_tracking_model.py'
     tree=ast.parse(source.read_text())
     nodes=[node for node in tree.body if isinstance(node,(ast.FunctionDef,ast.ClassDef)) and node.name in {'_record_usage','CostTrackingResponsesModel'}]
-    namespace={'ResponsesAgent':type('ResponsesAgent',(),{}),'ResponsesAgentRequest':object,
+    namespace={'ResponsesAgent':type('ResponsesAgent',(),{'responses_agent_output_reducer':staticmethod(lambda events:events)}),
+               'mlflow':NS(trace=lambda **kwargs:lambda fn:fn),'ResponsesAgentRequest':object,
                'ResponsesAgentResponse':object,'ResponsesAgentStreamEvent':object,'Generator':Generator,
                'logger':NS(warning=lambda *a,**k:None)}
     exec(compile(ast.Module(body=nodes,type_ignores=[]),str(source),'exec'),namespace)

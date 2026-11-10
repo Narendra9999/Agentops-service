@@ -154,6 +154,10 @@ class CostTrackingResponsesModel(ResponsesAgent):
         _record_usage(response)
         return response
 
+    @mlflow.trace(
+        name="agentops.request.stream", span_type="AGENT",
+        output_reducer=ResponsesAgent.responses_agent_output_reducer,
+    )
     def predict_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:

@@ -111,7 +111,11 @@ def failure_details(body, details=None):
 
 
 def invoke_stream(body):
-    """Proxy actual ResponsesAgent events; one request, no polling or retries."""
+    """Opt into App activity events while preserving signed memory context.
+
+    Playground uses output-item events by default. This UI consumes the richer
+    activity/completion protocol, with one upstream request and no retries.
+    """
     import requests
     w = WorkspaceClient()
     url = w.config.host.rstrip('/') + '/serving-endpoints/' + os.environ['SERVING_ENDPOINT'] + '/invocations'

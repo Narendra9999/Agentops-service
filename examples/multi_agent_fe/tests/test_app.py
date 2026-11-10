@@ -107,7 +107,8 @@ def test_stream_validates_before_starting(client):
 
 
 @pytest.mark.parametrize("completed", [True, False])
-def test_serving_proxy_preserves_activity_and_final_metadata(monkeypatch, completed):
+@pytest.mark.parametrize("signed_context", [None, {"signature": "test-signature", "owner": "alice"}])
+def test_serving_proxy_preserves_activity_and_final_metadata(monkeypatch, completed, signed_context):
     import json
     import requests
     calls = []
@@ -141,17 +142,22 @@ def test_serving_proxy_preserves_activity_and_final_metadata(monkeypatch, comple
     monkeypatch.setattr(server, 'WorkspaceClient', Workspace)
     monkeypatch.setattr(requests, 'post', post)
     monkeypatch.setenv('SERVING_ENDPOINT', 'demo-team')
+    body = server.Chat(messages=[server.Message(role='user', content='Read')])
+    body._agent_context = signed_context
     if not completed:
         with pytest.raises(RuntimeError, match='without a final response'):
-            list(server.invoke_stream(server.Chat(messages=[server.Message(role='user', content='Read')])))
+            list(server.invoke_stream(body))
         assert calls[-1] == 'closed'
         return
-    events = list(server.invoke_stream(server.Chat(messages=[server.Message(role='user', content='Read')])) )
+    events = list(server.invoke_stream(body))
     assert events[0][0] == 'activity' and events[0][1]['next_agent'] == 'platform_docs'
     assert events[-1][1]['custom_outputs']['trace_id'] == 'tr-123'
     assert calls[0][1]['json']['stream'] is True
     assert calls[0][1]['timeout'] == (20, 240)
-    assert calls[0][1]['json']['custom_inputs'] == {'stream_activity': True}
+    expected_inputs = {'stream_activity': True}
+    if signed_context:
+        expected_inputs['application_context'] = signed_context
+    assert calls[0][1]['json']['custom_inputs'] == expected_inputs
     assert len(calls) == 2 and calls[1] == 'closed'
 
 
