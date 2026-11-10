@@ -1,5 +1,5 @@
-> Current endpoint: `fe-platform-intelligence`, version **2**.
-> Playground compatibility and signed memory checks passed; the pipeline post-deployment quality gate failed.
+> Current endpoint: `fe-platform-intelligence`, version **3**.
+> Original AgentOPS pipeline, Playground API compatibility and signed memory checks passed.
 > See [validation and remaining issues](PLAYGROUND_FIX.md).
 
 > Fresh agent `fe-platform-intelligence`, model version **1**, passed the original

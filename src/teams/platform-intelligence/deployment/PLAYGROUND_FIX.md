@@ -1,3 +1,7 @@
+> Current verified endpoint: `fe-platform-intelligence`, version **3**.
+> Original pipeline and all live compatibility/memory checks passed.
+> The version 2 results below are historical; see the follow-up section for version 3.
+
 # Playground compatibility fix — 2026-11-10
 
 Endpoint `fe-platform-intelligence` serves model version **2**, with 100% traffic
@@ -66,3 +70,49 @@ now verifies traffic routing instead of assuming the first listed entity is live
 App deployment remains deferred; its existing endpoint remains unchanged and
 healthy. Advanced AI Gateway limitations documented in FRESH_DEPLOYMENT.md still
 apply. Sanitized evidence is retained locally under ignored validation-results/.
+
+## Follow-up: expired Playground example and routing schema
+
+A subsequent Playground request supplied `application_context` from the saved
+model example. The original registration notebook used `TeamRuntime.request()`
+to create that example, persisting a signed evaluation envelope that expired
+five minutes later. Fresh unsigned API checks did not exercise this prefilled
+Playground path, so the initial validation missed it.
+
+Registration now uses `TeamRuntime.input_example()` separately from authenticated
+evaluation requests. The platform-intelligence adapter publishes an unsigned
+example when stateless requests are enabled, or omits the example for signed-only
+configuration. The version **3** UC artifact was downloaded and verified to
+contain only `input`, with no signed context. Existing Playground tabs may retain
+the old payload: remove `custom_inputs.application_context` or load the new
+example. Invalid or expired signed contexts continue to be rejected.
+
+A separate live failure occurred when a delegation omitted the unused `answer`
+field. Routing now defaults unused `task` and `answer` fields to empty strings,
+while existing validation still requires a non-empty task for delegation and a
+non-empty answer for finish. Regression tests cover both missing-unused-field
+success and missing-required-for-action rejection.
+
+Implementation commit: `fa796f2`. Validation: 106 agent tests, 15 shared-runtime
+tests, strict FEVM bundle validation; the 23 focused graph/context tests passed.
+
+[Version 3 original pipeline run](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/777025154117943?o=7474644082064164).
+Version 3 deployment and the original smoke test passed. Live validation passed
+all three unsigned API scenarios and four signed memory/worker scenarios. The
+actual published input example was invoked after its former expiry window, and
+the exact user-reported 30-runs/month question completed successfully
+(`tr-fafe396916bebf7fc2e4e61e9437885a`). The model holds `champion` and receives
+100% traffic. The original pipeline completed **SUCCESS**. All six configured quality scores
+were **1.0** before and after deployment, and guardrail accuracy was **100%**
+in both phases. The endpoint settled READY / NOT_UPDATING. Earlier version 2
+failures above remain historical evidence; this result applies to version 3.
+
+Version 3 evaluation IDs: `29df3035-2244-44b8-927d-a588ccf5cb4f` (before),
+`e6424d9b-326e-4cfc-8a6f-655258e00f48` (after). Published-example trace:
+`tr-8461962ac7eafb5d01c6f7ea21af5e4c`. Successful signed regression traces were
+verified in experiment 240926829857302. The browser Playground UI was not operated.
+
+Version 2's retry failures were subsequently traced to the evaluation client's
+240-second HTTP read timeouts on Platform and combined requests, explaining the
+`None` audit responses. Version 3's signed Platform check took 67.3 seconds, but
+a single faster check does not establish a general latency improvement.
