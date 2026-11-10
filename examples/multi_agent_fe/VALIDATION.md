@@ -21,6 +21,17 @@
 - Existing worker calls and answer quality require binding the real knowledge
   endpoint. These local checks do not establish deployed-worker authorization.
 
+## FEVM standard ResponsesAgent packaging contract
+
+Serverless run **52486441721419** completed successfully using profile `fevm-naren`.
+Model artifact: `models:/m-d3b3acc40dba4a58a04e0b366ecccea1`.
+The actual AgentOPS `CostTrackingResponsesModel` loaded the team's `ChatModel`
+and existing supervisor ResponsesAgent. Assertions passed for public streaming
+progress, standard usage and trace ID, input guardrails preventing worker calls,
+and post-guardrails filtering sensitive output before final events were released.
+Workers were stubbed: **zero workers deployed**. This proves packaging and framework
+contracts, not live worker quality, permissions or external trace propagation.
+
 ## Historical validation
 
 ## Local checks

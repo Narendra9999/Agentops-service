@@ -144,3 +144,13 @@ supervisor-only configured estimate.
 Historical FEVM validation is retained in the example's `FEVM_STATUS.md` and
 `VALIDATION.md`; those records describe prior deployed versions and are not a claim
 that this new external-worker team has already been deployed.
+
+## Integration validation
+
+Local checks: 60 agent/App tests passed (one optional database test skipped),
+six framework tests passed, nine chart tests passed, and browser checks covered
+history rename/reopen, composer clearing and Stop. FEVM serverless run
+`52486441721419` passed the standard ResponsesAgent packaging contract with stub
+workers, including pre/post guardrails and streamed progress. No workers were
+provisioned or deployed. See `examples/multi_agent_fe/VALIDATION.md` for evidence
+and existing root-wide validation limitations.
