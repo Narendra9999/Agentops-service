@@ -39,6 +39,30 @@ changed registered guideline scorers use the Databricks update API while preserv
 their sampling settings. Prediction/scorer errors in individual evaluation rows
 fail the gate even when aggregate scores appear to pass.
 
+## Documentation index recovery
+
+The original FEVM index `fevm_catalog_naren.agentops.databricks_docs_index`
+cannot resume incremental sync: Databricks reports
+`VECTOR_SEARCH_SOURCE_HISTORY_OUT_OF_RETENTION`. Its existing 81 indexed chunks
+remain available. A team-owned replacement,
+`fevm_catalog_naren.agentops_multi.platform_docs_index`, was created on the same
+Vector Search endpoint from the existing Delta source table, with 84 chunks.
+It includes three chunks from the official serverless jobs documentation and
+grants the existing serving identity SELECT. Team config now binds the replacement.
+Neither the old index nor its source table was deleted. This was a one-time
+FEVM resource repair; the AgentOPS deployment pipeline still reuses its configured
+index instead of provisioning indexes or workers.
+
+To refresh the added official jobs page and request index sync:
+
+```sh
+python examples/multi_agent_fe/scripts/fevm_refresh_jobs_docs.py \
+  --profile fevm-naren --warehouse-id 2b169603bdabc084
+```
+
+Index synchronization is asynchronous. Verify readiness and that queries return
+the new document before treating the refresh as effective.
+
 ## Lakebase storage boundary
 
 Conversation history, preferences and curated Markdown memory use the existing

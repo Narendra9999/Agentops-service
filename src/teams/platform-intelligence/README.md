@@ -43,7 +43,7 @@ models are customer-owned when invoked remotely.
 
 Default model services are `system.ai.claude-sonnet-4-6` and
 `system.ai.gpt-oss-120b` through `/ai-gateway/mlflow/v1`. Existing Vector Search
-index: `fevm_catalog_naren.agentops.databricks_docs_index` (`chunk_text`, `url`).
+index: `fevm_catalog_naren.agentops_multi.platform_docs_index` (`chunk_text`, `url`).
 No index, Genie agent or worker endpoint is created by this implementation.
 
 ## Memory behavior

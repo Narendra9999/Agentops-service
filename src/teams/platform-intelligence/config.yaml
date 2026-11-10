@@ -22,7 +22,7 @@ multi_agent:
     platform_endpoint: ''
     cost_endpoint: ''
     platform_mode: in_process
-    docs_index: fevm_catalog_naren.agentops.databricks_docs_index
+    docs_index: fevm_catalog_naren.agentops_multi.platform_docs_index
     platform_model: system.ai.gpt-oss-120b
     memory_enabled: true
     memory_endpoint: projects/fe-agentops-multi/branches/production/endpoints/primary

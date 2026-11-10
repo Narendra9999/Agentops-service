@@ -177,7 +177,8 @@ def deploy(version):
 
 def smoke():
     from databricks.sdk import WorkspaceClient
-    w=WorkspaceClient()
+    from databricks.sdk.core import Config
+    w=WorkspaceClient(config=Config(http_timeout_seconds=240))
     payload=request('Which region is recorded for my workload? Use memory tools only; do not invoke a specialist.',
                     'evaluation:agentops-smoke:'+str(uuid.uuid4()))
     response=w.api_client.do('POST','/serving-endpoints/'+ENDPOINT+'/invocations',body=payload)
