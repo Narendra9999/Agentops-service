@@ -10,6 +10,7 @@ import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import ResponsesAgentResponse
 
+from .memory import resolve_memory_context
 from .config import Settings
 from .graph import Execution, build_graph
 from .prompts import load_prompts
@@ -22,6 +23,9 @@ class SupervisorAgent(AsyncResponsesAgent):
         self.settings = settings or Settings.from_env()
 
     def load_context(self, context):
+        # Databricks notebook import hooks need their loader thread. Resolve
+        # optional team modules here, not on an async/executor request thread.
+        from . import services, platform_worker, memory_graph, genie_agent
         if "runtime" in (context.artifacts or {}):
             self.settings = Settings(**json.loads(Path(context.artifacts["runtime"]).read_text()))
             self.settings = replace(self.settings, prompt_manifest=context.artifacts["prompts"])
@@ -67,7 +71,6 @@ class SupervisorAgent(AsyncResponsesAgent):
             messages.append({"role": data["role"], "content": content})
         if not messages or messages[-1]["role"] != "user":
             raise ValueError("A final user message is required")
-        from .memory import resolve_memory_context
         turn_settings, application_context, memory_mode = resolve_memory_context(
             self.settings, request.custom_inputs, messages)
         if memory_mode == 'stateless':
