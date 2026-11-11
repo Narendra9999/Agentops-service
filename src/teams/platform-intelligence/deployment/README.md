@@ -1,3 +1,7 @@
+> Current validated endpoint: `fe-platform-intelligence`, model version **10**.
+> All six original AgentOPS stages and nine direct serving scenarios passed.
+> Earlier version results below are historical. App deployment remains deferred.
+
 > Current endpoint: `fe-platform-intelligence`, version **3**.
 > Original AgentOPS pipeline, Playground API compatibility and signed memory checks passed.
 > See [validation and remaining issues](PLAYGROUND_FIX.md).
@@ -194,3 +198,31 @@ and [async runtime contracts](../../../../docs/development/async-runtime.md).
 App deployment remains deferred.
 
 Sanitized results: [validation-async-runtime.json](validation-async-runtime.json).
+
+## Async rollout: FEVM version 10
+
+[Run 1067121082481054](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/1067121082481054?o=7474644082064164)
+completed all six original AgentOPS stages successfully. Pre- and post-deployment
+scores were 1.0 for all six configured quality metrics; guardrail accuracy was
+1.0. The endpoint is READY and NOT_UPDATING, with 100% traffic on version 10.
+
+Direct validation passed three streaming routing scenarios, four signed Lakebase
+memory scenarios and two concurrent requests. Native MLflow token totals equal
+AgentOPS totals in all three streaming scenarios. AgentObserver remains disabled.
+Genie internal model usage remains unmetered, so Genie-related costs retain
+`partial_estimate` coverage.
+
+This rollout packages the shared async middleware and optional PII transformation
+without changing customer-owned model/tool orchestration. Deployed guardrails
+retain blocking policies. MLflow serving entry points remain synchronous;
+async hooks and the supervisor graph run asynchronously, while synchronous SDK
+operations use thread adapters. MCP transport is not implemented by this rollout.
+
+The single-agent regression fixture also passed its complete original pipeline
+and live prediction, streaming and blocking checks on version 5. Its serving
+fixes use SDK-managed Vector Search credentials and the public MLflow experiment
+trace destination. Combined local validation passed 252 tests. No evaluation
+thresholds were lowered. App deployment remains deferred.
+
+Sanitized results: [validation-async-runtime-v10.json](validation-async-runtime-v10.json).
+Single-agent results: [regression fixture](../../platform-engineering-test/README.md).

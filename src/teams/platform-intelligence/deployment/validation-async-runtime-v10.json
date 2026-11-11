@@ -1,0 +1,112 @@
+{
+  "endpoint": "fe-platform-intelligence",
+  "model_version": "10",
+  "pipeline_run_id": 1067121082481054,
+  "pre_evaluation_id": "9922ee31-0dfd-411c-8be7-0252c50f85b8",
+  "observer_enabled": false,
+  "native_usage_matches_agentops": true,
+  "live_status": "passed",
+  "native_scenarios": {
+    "cost": {
+      "trace_id": "tr-7d056fb8a8d1fc06878011ffcffb89d9",
+      "workers": [
+        "cost_estimation"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "6234",
+        "agentops.cost_usd": "0.02651400",
+        "agentops.cost.status": "partial_estimate"
+      }
+    },
+    "platform": {
+      "trace_id": "tr-bb191ae69a61c32c2a6fc2f8f5c728a9",
+      "workers": [
+        "platform_docs"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "27384",
+        "agentops.cost_usd": "0.05593600",
+        "agentops.cost.status": "estimated"
+      }
+    },
+    "combined": {
+      "trace_id": "tr-ec1d0ab873f797eea713d010e7f7192e",
+      "workers": [
+        "cost_estimation",
+        "platform_docs"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "35311",
+        "agentops.cost_usd": "0.07872000",
+        "agentops.cost.status": "partial_estimate"
+      }
+    }
+  },
+  "memory_scenarios": {
+    "remember": {
+      "trace_id": "tr-a01ecef90d61bafd7ad044a1fade2ac5",
+      "seconds": 16.0
+    },
+    "cross_session_recall": {
+      "trace_id": "tr-1439c2bca25460d1b0a652ee9813b4aa",
+      "seconds": 4.8
+    },
+    "platform": {
+      "trace_id": "tr-e3cb139421dea041dba1cf142aefaf91",
+      "seconds": 30.3
+    },
+    "cost": {
+      "trace_id": "tr-061700e1ccd2a1d35645f65b2b51429c",
+      "seconds": 30.0
+    }
+  },
+  "concurrent_scenarios": {
+    "platform": {
+      "trace_id": "tr-81aaee99c5a13cc1e7a94d10eaf95d26",
+      "usage": {
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "input_tokens": 11653,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 14775,
+        "output_tokens": 3122
+      },
+      "state": "OK"
+    },
+    "cost": {
+      "trace_id": "tr-9095461036c94e68d99270b5538685ed",
+      "usage": {
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "input_tokens": 5769,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 6490,
+        "output_tokens": 721
+      },
+      "state": "OK"
+    }
+  },
+  "pipeline_result": "SUCCESS",
+  "endpoint_state": {
+    "ready": "READY",
+    "config_update": "NOT_UPDATING",
+    "traffic_percentage": 100
+  },
+  "local_tests_passed": 252,
+  "post_evaluation_id": "3d783d30-06b5-410f-9ceb-102fa90c645f",
+  "quality_scores": {
+    "routing": 1.0,
+    "cost_grounding": 1.0,
+    "platform_evidence": 1.0,
+    "correctness": 1.0,
+    "relevance_to_query": 1.0,
+    "safety": 1.0
+  },
+  "guardrail_accuracy": 1.0
+}
