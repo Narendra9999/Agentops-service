@@ -159,3 +159,38 @@ local MLflow autologging check of the native graph without observer wrappers.
 The updated bundle passed strict validation. App deployment remains deferred.
 Machine-readable sanitized results are in
 [validation-observer-disabled.json](validation-observer-disabled.json).
+
+## Async middleware and supervisor: FEVM version 9
+
+[Run 142625413609326](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/701419594686647/runs/142625413609326?o=7474644082064164)
+completed all six original AgentOPS stages. Version 9 serves 100% of
+`fe-platform-intelligence` traffic. Pre- and post-deployment quality metrics
+were all 1.0; all 17 guardrail fixtures passed.
+
+The shared framework uses one async middleware lifecycle; the supervisor awaits
+its LangGraph nodes and model transport. Synchronous MLflow serving entry points
+remain compatible. Genie and Lakebase SDK operations remain thread-adapted.
+AgentObserver remains disabled. Customer orchestration and operation policies
+remain team-owned; AgentOPS applies policies at the outer agent boundary.
+
+Three direct streaming scenarios passed cost-only, platform-only and combined
+routing with the Playground response contract. Native MLflow token totals match
+AgentOPS totals for every scenario. LangChain is the sole model usage span: the
+async HTTP transport avoids duplicate OpenAI instrumentation. This corrects
+telemetry double counting, not duplicate provider requests. Genie-related cost
+coverage remains `partial_estimate`.
+
+Four signed-context scenarios passed explicit memory writes, persisted Lakebase
+files, recall from a fresh session, documentation retrieval and Genie routing.
+Two simultaneous nonstreaming requests returned separate thread IDs and OK traces
+with response usage. The 250 local framework, middleware and supervisor tests
+also passed.
+
+Optional PII transformation middleware is packaged but the deployed team keeps
+its existing blocking policy. Enabling input redaction for a signed application
+context requires a team adapter; telemetry redaction is a separate policy.
+See [middleware configuration](../../../../docs/development/guardrail-middleware.md)
+and [async runtime contracts](../../../../docs/development/async-runtime.md).
+App deployment remains deferred.
+
+Sanitized results: [validation-async-runtime.json](validation-async-runtime.json).

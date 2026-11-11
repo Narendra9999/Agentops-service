@@ -1,0 +1,105 @@
+{
+  "endpoint": "fe-platform-intelligence",
+  "model_version": "9",
+  "pipeline_run_id": 142625413609326,
+  "pipeline_result": "SUCCESS",
+  "pre_evaluation_id": "f6d89c67-a05e-4e23-82d6-474396cc59d6",
+  "post_evaluation_id": "51922e3c-9bf0-4c20-a29e-928d2b17906a",
+  "quality_scores": {
+    "routing": 1.0,
+    "cost_grounding": 1.0,
+    "platform_evidence": 1.0,
+    "correctness": 1.0,
+    "relevance_to_query": 1.0,
+    "safety": 1.0
+  },
+  "guardrail_accuracy": 1.0,
+  "observer_enabled": false,
+  "native_usage_matches_agentops": true,
+  "native_scenarios": {
+    "cost": {
+      "trace_id": "tr-8d0b8724bbedbf8b0b1f38252a1aa9b2",
+      "workers": [
+        "cost_estimation"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "4967",
+        "agentops.cost_usd": "0.02188500",
+        "agentops.cost.status": "partial_estimate"
+      }
+    },
+    "platform": {
+      "trace_id": "tr-3b648d07b61cc743e66b2579dec748f1",
+      "workers": [
+        "platform_docs"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "13480",
+        "agentops.cost_usd": "0.03807800",
+        "agentops.cost.status": "estimated"
+      }
+    },
+    "combined": {
+      "trace_id": "tr-99a4a97a33ea19cc5dd823187724a763",
+      "workers": [
+        "cost_estimation",
+        "platform_docs"
+      ],
+      "usage_tags": {
+        "agentops.tokens.total": "36822",
+        "agentops.cost_usd": "0.08434800",
+        "agentops.cost.status": "partial_estimate"
+      }
+    }
+  },
+  "memory_scenarios": {
+    "remember": {
+      "trace_id": "tr-6007dee2cbc7de850f461d40c20cd1d9",
+      "seconds": 16.1
+    },
+    "cross_session_recall": {
+      "trace_id": "tr-c681b17150f37df4764a6d738f7069df",
+      "seconds": 5.0
+    },
+    "platform": {
+      "trace_id": "tr-c66eda84d0ef7ab0848803ebcf341a04",
+      "seconds": 23.8
+    },
+    "cost": {
+      "trace_id": "tr-f3f77b86e0df05d27f674e75698dba0b",
+      "seconds": 32.2
+    }
+  },
+  "concurrent_scenarios": {
+    "platform": {
+      "trace_id": "tr-5065dac87fc40f87d45371cc7078492c",
+      "usage": {
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "input_tokens": 7764,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 9959,
+        "output_tokens": 2195
+      },
+      "state": "OK"
+    },
+    "cost": {
+      "trace_id": "tr-469553b989b279e852ed4790e688b423",
+      "usage": {
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "input_tokens": 7726,
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "total_tokens": 8440,
+        "output_tokens": 714
+      },
+      "state": "OK"
+    }
+  }
+}

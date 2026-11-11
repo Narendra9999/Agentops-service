@@ -81,7 +81,7 @@ def main():
         assert int(tags['agentops.tokens.total']) > 0
         assert float(tags['agentops.cost_usd']) >= 0
         spans = trace.data.spans
-        names = {span.name for span in spans}
+        names = {span.name for span in spans if span.name}
         workers = names & {'cost_estimation', 'platform_docs'}
         assert workers == expected, (name, workers)
         assert 'supervisor' in names
@@ -96,6 +96,7 @@ def main():
         report['scenarios'][name] = {
             'trace_id': trace_id, 'state': str(trace.info.state), 'workers': sorted(workers),
             'observer_enabled': False, 'span_count': len(spans), 'span_names': sorted(names),
+            'unnamed_span_count': sum(not span.name for span in spans),
             'token_usage': usage, 'event_types': event_types,
             'usage_tags': {key: tags[key] for key in (
                 'agentops.tokens.total', 'agentops.cost_usd', 'agentops.cost.status')},
