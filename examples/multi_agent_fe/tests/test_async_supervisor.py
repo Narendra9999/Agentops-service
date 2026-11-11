@@ -159,7 +159,7 @@ def test_pinned_model_adapter_uses_native_async_gateway_transport(monkeypatch):
             return response
 
     monkeypatch.setitem(sys.modules, 'databricks_langchain', NS(ChatDatabricks=Base))
-    client_type = openai.AsyncOpenAI
+    client_type = httpx.AsyncClient
 
     def handler(request):
         calls.append(request)
@@ -168,8 +168,10 @@ def test_pinned_model_adapter_uses_native_async_gateway_transport(monkeypatch):
             'message': {'role': 'assistant', 'content': 'Done'}, 'finish_reason': 'stop'}],
             'usage': {'prompt_tokens': 10, 'completion_tokens': 2, 'total_tokens': 12}})
 
-    monkeypatch.setattr(openai, 'AsyncOpenAI', lambda **kwargs: client_type(
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), **kwargs))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client_type(
+        transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(openai, 'AsyncOpenAI', lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError('Do not double-instrument the LangChain model call')))
     workspace = NS(config=NS(host='https://workspace.example',
                             authenticate=lambda: {'Authorization': 'Bearer test-only'}))
     model = chat_model(NS(model_transport='ai_gateway'), workspace, 'system.ai.claude-sonnet-4-6')

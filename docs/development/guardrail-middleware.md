@@ -19,6 +19,12 @@ not need an LLM or additional inference tokens.
 | Streaming protection | Post-check after delivery for native streams | Depends on operation hook placement and response shape | Post-redaction buffers final output before release |
 | Tool/agent internals | Customer-owned | Intercepted when routed through PicoAgents hooks | Customer-owned; not automatically intercepted |
 
+AgentOPS deliberately wraps the customer agent boundary. Teams already use their
+chosen framework to connect models and tools and own their routing, state and
+operation-level policies. AgentOPS adds shared pre/post policy without taking over
+those internals. PicoAgents' operation hooks serve a different responsibility;
+AgentOPS does not need to reproduce them to support boundary redaction.
+
 The PicoAgents implementation is an operation-level async-generator middleware
 chain. Its PII redactor handles primarily string content and shallow tool fields;
 it is not a complete nested-content or telemetry redaction solution. AgentOPS

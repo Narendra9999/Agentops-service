@@ -9,20 +9,27 @@ def chat_model(settings, workspace, model_name):
         # Pinned databricks-langchain 0.8.0 has no native _agenerate. Reuse its
         # tool/response conversion, with a request-scoped async transport.
         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-            from openai import AsyncOpenAI
+            import httpx
+            from openai.types.chat import ChatCompletion
+            from openai.types.responses import Response
             from framework.inference.async_runtime import run_blocking
             headers = await run_blocking(workspace.config.authenticate)
-            async with AsyncOpenAI(
-                api_key="databricks-sdk-auth", default_headers=headers,
-                base_url=str(self.client.base_url), max_retries=0,
-                timeout=self.timeout or 240,
-            ) as client:
-                data = self._prepare_inputs(messages, stop, **kwargs)
+            data = self._prepare_inputs(messages, stop, **kwargs)
+            # LangChain already traces this model invocation and its usage.
+            # Use HTTP transport rather than a second instrumented OpenAI call
+            # so native MLflow totals count each provider request once.
+            async with httpx.AsyncClient(timeout=self.timeout or 240) as client:
+                path = "responses" if self.use_responses_api else "chat/completions"
+                response = await client.post(
+                    str(self.client.base_url).rstrip("/") + "/" + path,
+                    headers=headers, json=data,
+                )
+                response.raise_for_status()
                 if self.use_responses_api:
-                    response = await client.responses.create(**data)
-                    return self._convert_responses_api_response_to_chat_result(response)
-                response = await client.chat.completions.create(**data)
-                return self._convert_response_to_chat_result(response)
+                    return self._convert_responses_api_response_to_chat_result(
+                        Response.model_validate(response.json()))
+                return self._convert_response_to_chat_result(
+                    ChatCompletion.model_validate(response.json()))
 
     model = AsyncChatDatabricks(model=model_name, workspace_client=workspace,
                                 temperature=0, max_retries=0)

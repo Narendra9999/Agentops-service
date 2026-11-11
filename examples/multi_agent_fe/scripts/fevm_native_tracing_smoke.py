@@ -90,6 +90,9 @@ def main():
         usage = [span.attributes['mlflow.chat.tokenUsage'] for span in spans
                  if span.attributes.get('mlflow.chat.tokenUsage')]
         assert usage, 'Native model token usage missing'
+        native_total = trace.info.token_usage['total_tokens']
+        assert native_total == int(tags['agentops.tokens.total']), (
+            'Native usage differs from observed model usage', native_total, tags['agentops.tokens.total'])
         report['scenarios'][name] = {
             'trace_id': trace_id, 'state': str(trace.info.state), 'workers': sorted(workers),
             'observer_enabled': False, 'span_count': len(spans), 'span_names': sorted(names),
