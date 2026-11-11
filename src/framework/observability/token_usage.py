@@ -10,7 +10,7 @@ def as_dict(value):
     for method in ('model_dump', 'as_dict'):
         if hasattr(value, method):
             return getattr(value, method)()
-    return {}
+    return dict(vars(value)) if hasattr(value, "__dict__") else {}
 
 
 def normalize_usage(value):
