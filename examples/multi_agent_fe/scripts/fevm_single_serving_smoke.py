@@ -52,6 +52,10 @@ def main():
                         break
                     event = json.loads(raw)
                     assert not event.get('error') and event.get('type') not in {'error', 'response.failed'}, event
+                    assert event.get('type') in {
+                        'response.output_text.delta', 'response.output_text.annotation.added',
+                        'response.output_item.done',
+                    }, ('Playground-incompatible event', event.get('type'))
                     if event.get('type') == 'response.output_item.done':
                         ResponseOutputItemDoneEvent.model_validate(event)
                         items.append(event['item'])

@@ -172,7 +172,7 @@ class AgentOPSBase(AsyncResponsesAgent):
     def _call_llm_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        """Forward native Responses events and capture final response usage."""
+        """Emit serving-compatible output events and capture provider usage."""
         from databricks.sdk import WorkspaceClient
         from openai import Stream
         from openai.types.responses import Response, ResponseStreamEvent
@@ -191,7 +191,12 @@ class AgentOPSBase(AsyncResponsesAgent):
                 if event.type == "response.completed":
                     record_response_usage(event.response, self._request_context, self.llm_endpoint)
                     completed = True
-                elif event.type.startswith("response."):
+                # Playground accepts output events, not provider lifecycle envelopes.
+                # MLflow's permissive event model does not enforce that UI contract.
+                elif event.type in {
+                    "response.output_text.delta", "response.output_text.annotation.added",
+                    "response.output_item.done",
+                }:
                     yield ResponsesAgentStreamEvent(**event.model_dump(exclude_none=True))
         if not completed:
             raise RuntimeError("Responses stream ended without a response.completed event.")

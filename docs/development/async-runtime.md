@@ -156,3 +156,14 @@ experiment-export helper.
 The shared documentation retrieval tool now uses `WorkspaceClient` authentication
 for Vector Search rather than constructing a PAT-based client. This supports
 serving OAuth identities and maps result rows using the returned column manifest.
+
+### Provider streams and Playground
+
+The shared Responses provider adapter emits `response.output_text.delta`,
+`response.output_text.annotation.added` and `response.output_item.done` events.
+Provider lifecycle envelopes such as `response.created` and `response.in_progress`
+are consumed internally: Playground can reject them even though MLflow's generic
+stream-event model permits them. `response.completed` records final usage without
+being forwarded. Provider failure and truncated completion still raise errors.
+The live single-agent check rejects unsupported event types anywhere in the
+stream, rather than only validating the final completed item.

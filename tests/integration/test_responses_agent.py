@@ -327,6 +327,12 @@ def test_provider_uses_responses_transport_and_tracks_native_usage(monkeypatch, 
 def test_provider_stream_forwards_native_events_and_tracks_final_usage(monkeypatch):
     payload = provider_response()
     events = [
+        {"type": "response.created", "sequence_number": 0,
+         "response": {**payload, "status": "in_progress", "output": []}},
+        {"type": "response.in_progress", "sequence_number": 0,
+         "response": {**payload, "status": "in_progress", "output": []}},
+        {"type": "response.output_item.added", "sequence_number": 0,
+         "output_index": 0, "item": payload["output"][0]},
         {"type": "response.output_text.delta", "sequence_number": 1, "item_id": "answer",
          "output_index": 0, "content_index": 0, "delta": "answer", "logprobs": []},
         {"type": "response.output_item.done", "sequence_number": 2, "output_index": 0, "item": payload["output"][0]},
