@@ -189,13 +189,3 @@ def test_shared_metric_gate_policy_is_identical_for_combined_evaluation():
     expected=metric_gate_results(thresholds,metrics)
     assert compute_quality_gate(thresholds,metrics,1.,.8)['quality_gate_results']==expected
     assert [gate['passed'] for gate in expected.values()]==[True,False,False]
-
-
-@pytest.mark.parametrize('team', ['platform-intelligence', 'platform-engineering-test'])
-def test_fevm_pipeline_has_explicit_target_bound_service_principal(team):
-    bundle = yaml.safe_load((ROOT / 'src/teams' / team / 'deployment/databricks.yml').read_text())
-    assert bundle['run_as'] == {'service_principal_name': '${var.service_principal_id}'}
-    assert 'default' not in bundle['variables']['service_principal_id']
-    target = bundle['targets']['fevm']
-    assert target['variables']['service_principal_id'] == 'e3bcf75e-7b34-4026-8860-d5e4423ea2b7'
-    assert target['workspace']['host'] == 'https://fevm-classic-stable-naren.cloud.databricks.com'

@@ -167,3 +167,23 @@ stream-event model permits them. `response.completed` records final usage withou
 being forwarded. Provider failure and truncated completion still raise errors.
 The live single-agent check rejects unsupported event types anywhere in the
 stream, rather than only validating the final completed item.
+
+### Native usage on shared provider calls
+
+The shared Responses API adapter creates one `LLM` span per provider request,
+including streaming requests. The existing usage recorder exports provider token
+counts to `mlflow.chat.tokenUsage` on that span and uses the existing TokenTracker
+rate card through the common native-cost fallback. Cached input and reasoning
+counts are retained; cost remains a configured-rate estimate. Missing usage or
+pricing does not create a native zero-cost assertion.
+
+AgentOPS summary tags and native MLflow header metrics describe the same calls.
+No usage is attached to parent request/agent spans. Streaming records final usage
+when the provider completes; truncated streams do not invent counts. Customer
+agents with native LangChain tracing retain their existing model spans and do
+not invoke this provider adapter. This does not intercept their model/tool calls.
+
+Local regression checks verify actual exported trace totals for prediction and
+streaming, cached-token cost parity, one provider request and one usage-bearing
+span. FEVM uses the previous authenticated-deployer identity while the explicit
+service-principal migration is deferred. See [deployment identities](deployment-identity.md).

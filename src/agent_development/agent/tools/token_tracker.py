@@ -195,13 +195,8 @@ class TokenTracker:
 
         return None
 
-    def _calculate_cost(self, prompt_tokens: int, completion_tokens: int,
-                        cached_tokens: int = 0) -> float:
-        """Calculate cost in USD based on model pricing.
-
-        When cached_tokens > 0, those tokens are charged at the
-        cached_input rate instead of the full input rate.
-        """
+    def pricing_per_million(self) -> dict:
+        """Resolve the existing rate card for shared native MLflow cost export."""
         model = self.model_name.lower()
 
         # Try exact match first, then prefix/substring match
@@ -212,8 +207,19 @@ class TokenTracker:
                     pricing = p
                     break
 
+        return {key: value * 1000 for key, value in pricing.items()} if pricing else {}
+
+    def _calculate_cost(self, prompt_tokens: int, completion_tokens: int,
+                        cached_tokens: int = 0) -> float:
+        """Calculate cost in USD based on model pricing.
+
+        When cached_tokens > 0, those tokens are charged at the
+        cached_input rate instead of the full input rate.
+        """
+        pricing = self.pricing_per_million()
         if not pricing:
             return 0.0
+        pricing = {key: value / 1000 for key, value in pricing.items()}
 
         # Split input tokens into cached and non-cached
         non_cached_input = max(0, prompt_tokens - cached_tokens)

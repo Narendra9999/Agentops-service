@@ -1,3 +1,7 @@
+> Current FEVM rollout uses the previous authenticated-deployer identity, per the
+> user's instruction. The explicit service-principal run_as migration below is
+> deferred until its role prerequisites are satisfied. Customer root config is unchanged.
+
 # Deployment identities: Jenkins and FEVM
 
 The customer root `databricks.yml` uses `run_as.service_principal_name: !sp_id`.

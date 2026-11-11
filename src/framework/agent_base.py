@@ -155,6 +155,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             raise ValueError("llm.responses_api must be 'responses' or 'open-responses'.")
         return f"/{api}"
 
+    @mlflow.trace(name="agentops.model.responses", span_type="LLM")
     def _call_llm(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """Call the Responses API without converting native output items."""
         from databricks.sdk import WorkspaceClient
@@ -166,9 +167,11 @@ class AgentOPSBase(AsyncResponsesAgent):
         )
         if response.error:
             raise RuntimeError(f"Responses API failed: {response.error.message}")
-        record_response_usage(response, self._request_context, self.llm_endpoint)
+        record_response_usage(response, self._request_context, self.llm_endpoint,
+                              span=mlflow.get_current_active_span())
         return ResponsesAgentResponse(output=[item.model_dump(exclude_none=True) for item in response.output])
 
+    @mlflow.trace(name="agentops.model.responses.stream", span_type="LLM")
     def _call_llm_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
@@ -189,7 +192,8 @@ class AgentOPSBase(AsyncResponsesAgent):
                 if event.type in {"error", "response.failed", "response.incomplete"}:
                     raise RuntimeError(f"Responses stream failed: {event.model_dump(exclude_none=True)}")
                 if event.type == "response.completed":
-                    record_response_usage(event.response, self._request_context, self.llm_endpoint)
+                    record_response_usage(event.response, self._request_context, self.llm_endpoint,
+                                          span=mlflow.get_current_active_span())
                     completed = True
                 # Playground accepts output events, not provider lifecycle envelopes.
                 # MLflow's permissive event model does not enforce that UI contract.

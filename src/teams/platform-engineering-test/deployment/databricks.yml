@@ -1,11 +1,5 @@
 bundle:
   name: agentops-platform-single-validation
-# Equivalent to the customer bundle's Jenkins-rendered !sp_id binding.
-run_as:
-  service_principal_name: ${var.service_principal_id}
-variables:
-  service_principal_id:
-    description: Service principal application ID used to execute the original pipeline
 sync:
   paths:
   - ../../../..
@@ -110,7 +104,3 @@ targets:
   fevm:
     default: true
     mode: development
-    workspace:
-      host: https://fevm-classic-stable-naren.cloud.databricks.com
-    variables:
-      service_principal_id: e3bcf75e-7b34-4026-8860-d5e4423ea2b7

@@ -9,7 +9,9 @@ import mlflow
 import time
 from typing import Optional
 
-from framework.observability.token_usage import as_dict, normalize_usage, response_usage
+from framework.observability.token_usage import (
+    as_dict, normalize_usage, response_usage, set_native_cost_fallback,
+)
 
 try:
     from langchain_core.callbacks import get_usage_metadata_callback
@@ -133,8 +135,23 @@ def record_usage(usages, request_context, model_name=""):
     return True
 
 
-def record_response_usage(response, request_context=None, model_name=""):
-    return record_usage([response_usage(response)], request_context, model_name)
+def record_response_usage(response, request_context=None, model_name="", *, span=None):
+    """Account once; optionally export native metrics on the owning model-call span.
+
+    Never pass a request/agent aggregate span here. Customer framework model spans
+    remain owned by their existing instrumentation.
+    """
+    usage = response_usage(response)
+    recorded = record_usage([usage], request_context, model_name)
+    if span is not None:
+        span.set_attribute("mlflow.llm.model", model_name)
+        if usage is not None:
+            span.set_attribute("mlflow.chat.tokenUsage", usage)
+            if TokenTracker is not None:
+                set_native_cost_fallback(span, {
+                    model_name: TokenTracker(model_name=model_name).pricing_per_million()
+                })
+    return recorded
 
 
 class _UsageCaptureCallback(BaseCallbackHandler):

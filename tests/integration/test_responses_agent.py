@@ -460,3 +460,54 @@ def test_cca_native_hook_preserves_clarification_history_and_streaming_fallback(
     assert len(events) == 1 and events[0].type == "response.output_item.done"
     assert events[0].item["id"] == "cca-answer"
     assert events[0].item["content"][0]["text"] == "CCA answer"
+
+
+@pytest.mark.parametrize('streaming', [False, True])
+def test_provider_native_trace_metrics_match_agentops_once(tmp_path, monkeypatch, streaming):
+    import mlflow
+    from framework.observability import usage_tracking
+    from agent_development.agent.tools.token_tracker import TokenTracker
+    monkeypatch.setattr(usage_tracking, 'TokenTracker', TokenTracker)
+    # File storage has no server cost aggregator; exercise the Databricks client path.
+    monkeypatch.setattr('mlflow.tracing.processor.base_mlflow.should_compute_cost_client_side', lambda: True)
+    old_uri = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri((tmp_path / 'mlruns').as_uri())
+    mlflow.set_experiment('native-provider-metrics')
+    try:
+        agent = make_agent()
+        payload = provider_response()
+        events = [
+            {'type': 'response.output_item.done', 'sequence_number': 0,
+             'output_index': 0, 'item': payload['output'][0]},
+            {'type': 'response.completed', 'sequence_number': 1, 'response': payload},
+        ] if streaming else None
+        client, requests = mock_provider(monkeypatch, agent, events)
+        with client, mlflow.start_span(name='request', span_type='AGENT') as parent:
+            if streaming:
+                list(agent._call_llm_stream(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}])))
+            else:
+                agent._call_llm(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}]))
+            assert parent.get_attribute('mlflow.chat.tokenUsage') is None
+            assert parent.get_attribute('mlflow.llm.cost') is None
+        mlflow.flush_trace_async_logging()
+        trace = mlflow.get_trace(parent.trace_id)
+        spans = [s for s in trace.data.spans if s.get_attribute('mlflow.chat.tokenUsage') is not None]
+        assert len(requests) == len(spans) == 1
+        assert spans[0].span_type == 'LLM'
+        assert spans[0].get_attribute('mlflow.llm.model') == agent.llm_endpoint
+        usage = spans[0].get_attribute('mlflow.chat.tokenUsage')
+        assert usage == {'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15,
+                         'cached_tokens': 2, 'reasoning_tokens': 1}
+        history = agent._request_context['token_usage_history']
+        assert len(history) == 1 and history[0]['total_tokens'] == usage['total_tokens']
+        cost = spans[0].get_attribute('mlflow.llm.cost')
+        assert cost['total_cost'] == pytest.approx(history[0]['total_cost_usd'])
+        # Includes two cached input tokens at the existing discounted rate.
+        assert cost['total_cost'] == pytest.approx(0.000019)
+        native_total = json.loads(trace.info.request_metadata['mlflow.trace.tokenUsage'])
+        assert native_total['total_tokens'] == usage['total_tokens']
+        native_cost = json.loads(trace.info.request_metadata['mlflow.trace.cost'])
+        assert native_cost['total_cost'] == pytest.approx(cost['total_cost'])
+    finally:
+        mlflow.set_tracking_uri(old_uri)
+        mlflow.tracing.reset()

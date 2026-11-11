@@ -78,15 +78,21 @@ def main():
             time.sleep(2)
         assert trace is not None and str(trace.info.state) == 'OK', name
         tags = trace.info.tags
+        native_usage = json.loads(trace.info.request_metadata.get('mlflow.trace.tokenUsage', '{}'))
+        native_cost = json.loads(trace.info.request_metadata.get('mlflow.trace.cost', '{}'))
         if name == 'input_block':
             assert tags['agentops.guardrail.pre_llm.blocked'] == 'true'
             assert int(tags.get('agentops.tokens.total', 0)) == 0
+            assert native_usage.get('total_tokens', 0) == 0
         else:
             assert int(tags['agentops.tokens.total']) > 0
             assert float(tags['agentops.cost_usd']) >= 0
             assert int(tags['agentops.llm_requests']) == 1
+            assert native_usage['total_tokens'] == int(tags['agentops.tokens.total'])
+            assert abs(native_cost['total_cost'] - float(tags['agentops.cost_usd'])) <= 0.000001
         report['scenarios'][name] = {'trace_id': trace.info.trace_id, 'state': str(trace.info.state),
-            'tokens': tags.get('agentops.tokens.total'), 'cost_usd': tags.get('agentops.cost_usd'), 'status': 'passed'}
+            'tokens': tags.get('agentops.tokens.total'), 'cost_usd': tags.get('agentops.cost_usd'), 'status': 'passed',
+            'native_token_usage': native_usage, 'native_cost': native_cost}
         print(json.dumps({'scenario': name, **report['scenarios'][name]}), flush=True)
     out = Path(__file__).resolve().parents[1] / 'validation-results' / 'async-single-serving.json'
     out.parent.mkdir(exist_ok=True)

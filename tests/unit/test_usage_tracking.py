@@ -72,3 +72,16 @@ def test_no_usage_does_not_record_zero_call():
     context = {}
     assert not tracking.record_response_usage({'output': []}, context)
     assert context == {}
+
+
+@pytest.mark.parametrize('usage', [None, {'input_tokens': 10, 'output_tokens': 2}])
+def test_native_usage_without_pricing_does_not_fabricate_cost(usage):
+    attributes = {}
+    span = SimpleNamespace(span_type='LLM',
+                           set_attribute=attributes.__setitem__,
+                           get_attribute=attributes.get)
+    context = {}
+    tracking.record_response_usage({'usage': usage}, context, 'unpriced-model', span=span)
+    assert 'mlflow.llm.cost' not in attributes
+    assert ('mlflow.chat.tokenUsage' in attributes) == (usage is not None)
+    assert len(context.get('token_usage_history', [])) == (1 if usage else 0)
