@@ -1,6 +1,7 @@
 """Provider-reported usage normalization and AgentOPS tags; no token estimation."""
 import json
 import math
+import threading
 from collections.abc import Mapping
 
 
@@ -78,6 +79,30 @@ def cost_breakdown(usage, rates):
         return None
 
 
+_native_cost_lock = threading.Lock()
+
+
+def _finalize_configured_cost(span):
+    """Keep the selected rate card after MLflow's end-of-span price lookup.
+
+    Only spans explicitly priced by AgentOPS carry this marker. Existing native
+    or provider costs are left alone; request/agent aggregates are never priced.
+    """
+    if span.span_type in {'LLM', 'CHAT_MODEL'}:
+        estimate = span.get_attribute('agentops.cost.configured_estimate')
+        if estimate is not None:
+            span.set_attribute('mlflow.llm.cost', estimate)
+
+
+def _install_configured_cost_processor():
+    import mlflow
+    from mlflow.tracing.config import get_config
+    with _native_cost_lock:
+        processors = list(get_config().span_processors)
+        if _finalize_configured_cost not in processors:
+            mlflow.tracing.configure(span_processors=[*processors, _finalize_configured_cost])
+
+
 def set_native_cost_fallback(span, rates_by_model):
     """Fill missing per-call cost without changing routing or pricing parent spans."""
     if span.span_type not in {'LLM', 'CHAT_MODEL'}:
@@ -88,6 +113,8 @@ def set_native_cost_fallback(span, rates_by_model):
     usage = normalize_usage(span.get_attribute('mlflow.chat.tokenUsage'))
     cost = cost_breakdown(usage, rates_by_model.get(model))
     if cost is not None:
+        _install_configured_cost_processor()
+        span.set_attribute('agentops.cost.configured_estimate', cost)
         span.set_attribute('mlflow.llm.cost', cost)
         span.set_attribute('agentops.cost.source', 'configured_rate_estimate')
         span.set_attribute('agentops.cost.currency', 'USD')

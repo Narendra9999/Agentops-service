@@ -195,3 +195,7 @@ attributes on LLM/CHAT_MODEL spans. Supervisor autologging remains the owner of
 LangChain span creation. Its request-scoped rate card is passed to the shared
 exporter; direct calls use TokenTracker's existing rate card. No additional
 configuration or AgentObserver is required.
+
+Configured per-call cost estimates are finalized after MLflow closes model spans,
+so its built-in price lookup cannot silently replace the selected AgentOPS rate
+card. Existing native costs remain untouched; parent spans are not priced.

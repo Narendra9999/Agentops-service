@@ -470,6 +470,12 @@ def test_provider_native_trace_metrics_match_agentops_once(tmp_path, monkeypatch
     monkeypatch.setattr(usage_tracking, 'TokenTracker', TokenTracker)
     # File storage has no server cost aggregator; exercise the Databricks client path.
     monkeypatch.setattr('mlflow.tracing.processor.base_mlflow.should_compute_cost_client_side', lambda: True)
+    # Databricks MLflow reprices at LiveSpan.end before user processors run.
+    monkeypatch.setattr('mlflow.entities.span.should_compute_cost_client_side', lambda: True)
+    monkeypatch.setattr('mlflow.entities.span.set_span_cost_attribute',
+                        lambda span: span.set_attribute('mlflow.llm.cost',
+                            {'input_cost': 1.0, 'output_cost': 2.0, 'total_cost': 3.0})
+                        if span.span_type == 'LLM' else None)
     old_uri = mlflow.get_tracking_uri()
     mlflow.set_tracking_uri((tmp_path / 'mlruns').as_uri())
     mlflow.set_experiment('native-provider-metrics')

@@ -78,3 +78,32 @@ def test_shared_native_export_preserves_autologged_usage_and_never_prices_parent
     export_native_model_usage(parent, usage={'input_tokens': 10}, rates_by_model=RATES)
     assert parent.attributes['mlflow.chat.tokenUsage'] is None
     assert 'mlflow.llm.cost' not in parent.attributes
+
+
+def test_shared_finalizer_preserves_selected_rate_card_and_existing_costs():
+    from framework.observability.token_usage import _finalize_configured_cost
+    span = Span()
+    set_native_cost_fallback(span, RATES)
+    selected = span.attributes['mlflow.llm.cost']
+    span.set_attribute('mlflow.llm.cost', {'total_cost': 99})
+    _finalize_configured_cost(span)
+    assert span.attributes['mlflow.llm.cost'] == selected
+    existing = Span(**{'mlflow.llm.cost': {'total_cost': 0.3}})
+    set_native_cost_fallback(existing, RATES)
+    _finalize_configured_cost(existing)
+    assert existing.attributes['mlflow.llm.cost'] == {'total_cost': 0.3}
+    assert 'agentops.cost.configured_estimate' not in existing.attributes
+
+
+def test_shared_finalizer_install_is_idempotent_and_preserves_processors():
+    import mlflow
+    from mlflow.tracing.config import get_config
+    from framework.observability.token_usage import (
+        _install_configured_cost_processor, _finalize_configured_cost,
+    )
+    def redact(span):
+        pass
+    with mlflow.tracing.configure(span_processors=[redact]):
+        _install_configured_cost_processor()
+        _install_configured_cost_processor()
+        assert get_config().span_processors == [redact, _finalize_configured_cost]
