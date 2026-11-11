@@ -63,3 +63,18 @@ def test_install_recovers_after_runtime_configuration_reset():
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(lambda _:usage.install_native_cost_processor(),range(12)))
         assert get_config().span_processors==[redact,usage.native_cost_processor]
+
+
+def test_shared_native_export_preserves_autologged_usage_and_never_prices_parent():
+    from framework.observability.token_usage import export_native_model_usage
+    span = Span()
+    original = span.attributes['mlflow.chat.tokenUsage']
+    export_native_model_usage(span, usage={'input_tokens': 999, 'output_tokens': 999},
+                              model_name='do-not-overwrite', rates_by_model=RATES)
+    assert span.attributes['mlflow.chat.tokenUsage'] is original
+    assert span.attributes['mlflow.llm.model'] == 'system.ai.claude-sonnet-4-6'
+    assert span.attributes['mlflow.llm.cost']['total_cost'] == pytest.approx(.00102)
+    parent = Span(kind='AGENT', **{'mlflow.chat.tokenUsage': None})
+    export_native_model_usage(parent, usage={'input_tokens': 10}, rates_by_model=RATES)
+    assert parent.attributes['mlflow.chat.tokenUsage'] is None
+    assert 'mlflow.llm.cost' not in parent.attributes

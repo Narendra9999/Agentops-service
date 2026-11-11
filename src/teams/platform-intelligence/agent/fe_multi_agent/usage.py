@@ -6,7 +6,7 @@ import logging
 import threading
 
 from langchain_core.callbacks.base import BaseCallbackHandler
-from framework.observability.token_usage import as_dict, normalize_usage, estimate_cost, usage_tags, set_native_cost_fallback
+from framework.observability.token_usage import as_dict, normalize_usage, estimate_cost, usage_tags, export_native_model_usage
 
 _agent = ContextVar('agentops_usage_agent', default='unattributed')
 _meter = ContextVar('agentops_usage_meter', default=None)
@@ -17,7 +17,7 @@ _processor_lock = threading.Lock()
 def native_cost_processor(span):
     meter = current_meter()
     if meter is not None:
-        set_native_cost_fallback(span, meter.rates)
+        export_native_model_usage(span, rates_by_model=meter.rates)
 
 
 def install_native_cost_processor():

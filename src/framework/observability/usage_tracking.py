@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 from framework.observability.token_usage import (
-    as_dict, normalize_usage, response_usage, set_native_cost_fallback,
+    as_dict, normalize_usage, response_usage, export_native_model_usage,
 )
 
 try:
@@ -143,14 +143,9 @@ def record_response_usage(response, request_context=None, model_name="", *, span
     """
     usage = response_usage(response)
     recorded = record_usage([usage], request_context, model_name)
-    if span is not None:
-        span.set_attribute("mlflow.llm.model", model_name)
-        if usage is not None:
-            span.set_attribute("mlflow.chat.tokenUsage", usage)
-            if TokenTracker is not None:
-                set_native_cost_fallback(span, {
-                    model_name: TokenTracker(model_name=model_name).pricing_per_million()
-                })
+    rates = ({model_name: TokenTracker(model_name=model_name).pricing_per_million()}
+             if TokenTracker is not None and usage is not None else {})
+    export_native_model_usage(span, usage=usage, model_name=model_name, rates_by_model=rates)
     return recorded
 
 

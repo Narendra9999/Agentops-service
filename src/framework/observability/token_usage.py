@@ -93,6 +93,23 @@ def set_native_cost_fallback(span, rates_by_model):
         span.set_attribute('agentops.cost.currency', 'USD')
 
 
+def export_native_model_usage(span, *, usage=None, model_name=None, rates_by_model=None):
+    """Export native metrics on a model span, preserving existing instrumentation.
+
+    Direct provider adapters supply usage; framework autologging already supplies
+    it on model spans. Neither path annotates parent spans or adds another call.
+    """
+    if span is None or span.span_type not in {'LLM', 'CHAT_MODEL'}:
+        return
+    if model_name and span.get_attribute('mlflow.llm.model') is None:
+        span.set_attribute('mlflow.llm.model', model_name)
+    if span.get_attribute('mlflow.chat.tokenUsage') is None:
+        normalized = normalize_usage(usage)
+        if normalized is not None:
+            span.set_attribute('mlflow.chat.tokenUsage', normalized)
+    set_native_cost_fallback(span, rates_by_model or {})
+
+
 def emit_response_usage(response):
     """Copy a response aggregate once; never add it to child-call totals."""
     usage = response_usage(response)

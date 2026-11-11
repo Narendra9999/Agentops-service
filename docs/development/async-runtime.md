@@ -187,3 +187,11 @@ Local regression checks verify actual exported trace totals for prediction and
 streaming, cached-token cost parity, one provider request and one usage-bearing
 span. FEVM uses the previous authenticated-deployer identity while the explicit
 service-principal migration is deferred. See [deployment identities](deployment-identity.md).
+
+Both direct Responses adapters and supervisor native-span processing call
+`framework.observability.token_usage.export_native_model_usage`. The exporter
+preserves existing model identity, native usage and cost; it only fills missing
+attributes on LLM/CHAT_MODEL spans. Supervisor autologging remains the owner of
+LangChain span creation. Its request-scoped rate card is passed to the shared
+exporter; direct calls use TokenTracker's existing rate card. No additional
+configuration or AgentObserver is required.
