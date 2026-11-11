@@ -127,9 +127,11 @@ thread-adapted with no claim of remote cancellation or rollback.
 
 The pinned `databricks-langchain==0.8.0` implements synchronous model transport.
 The team's `chat_model` factory adds `_agenerate` using a request-scoped
-`AsyncOpenAI` client, refreshed SDK authentication and the configured serving or
+`httpx.AsyncClient`, refreshed SDK authentication and the configured serving or
 AI Gateway base URL. It reuses the pinned package's input/tool/response converters
-and sets automatic retries to zero. Async client contexts close on each model
+and makes one HTTP request without automatic retries. OpenAI typed responses are
+used for conversion, without invoking an additional instrumented OpenAI client:
+LangChain remains the sole model usage span. Async client contexts close on each model
 call so clients are not reused across the synchronous serving adapter's loops.
 
 Activity streaming uses a request-owned async task and a bounded activity queue.
