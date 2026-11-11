@@ -93,11 +93,14 @@ def main():
         native_total = trace.info.token_usage['total_tokens']
         assert native_total == int(tags['agentops.tokens.total']), (
             'Native usage differs from observed model usage', native_total, tags['agentops.tokens.total'])
+        native_cost = json.loads(trace.info.request_metadata['mlflow.trace.cost'])
+        assert abs(native_cost['total_cost'] - float(tags['agentops.cost_usd'])) < 1e-6, (
+            'Native cost differs from AgentOPS estimate', native_cost, tags['agentops.cost_usd'])
         report['scenarios'][name] = {
             'trace_id': trace_id, 'state': str(trace.info.state), 'workers': sorted(workers),
             'observer_enabled': False, 'span_count': len(spans), 'span_names': sorted(names),
             'unnamed_span_count': sum(not span.name for span in spans),
-            'token_usage': usage, 'event_types': event_types,
+            'token_usage': usage, 'native_cost': native_cost, 'event_types': event_types,
             'usage_tags': {key: tags[key] for key in (
                 'agentops.tokens.total', 'agentops.cost_usd', 'agentops.cost.status')},
             'native_worker_parent_ids': {span.name: span.parent_id for span in spans
