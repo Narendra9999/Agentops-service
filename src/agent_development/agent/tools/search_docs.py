@@ -39,30 +39,18 @@ def search_docs(
         # Fetch more candidates if reranking (reranker picks the best from a larger pool)
         fetch_count = num_results * 3 if reranker_enabled else num_results
 
-        # Use VectorSearchClient with explicit token to force control-plane URL path.
-        # SDK 0.63 with service-principal auth uses a broken data-plane URL;
-        # passing personal_access_token forces the reliable CP path.
-        from databricks.vector_search.client import VectorSearchClient
-        _token = w.config.token
-        _host = w.config.host
-        vsc = VectorSearchClient(workspace_url=_host, personal_access_token=_token)
-        idx = vsc.get_index(endpoint_name=endpoint_name, index_name=index_name)
-        raw = idx.similarity_search(
-            query_text=query,
-            columns=default_columns,
-            num_results=fetch_count,
-        )
-
-        # Normalize response to match SDK format
-        results = type("Resp", (), {"result": type("R", (), {"data_array": raw.get("result", {}).get("data_array", [])})})()
-
+        # SDK authentication supports both interactive and serving identities;
+        # do not require a PAT or re-create OAuth credentials in the tool.
+        raw = w.vector_search_indexes.query_index(
+            index_name=index_name, query_text=query,
+            columns=default_columns, num_results=fetch_count,
+        ).as_dict()
+        names = [column["name"] for column in raw.get("manifest", {}).get("columns", [])]
+        names = names or default_columns
         docs = []
-        if hasattr(results, "result") and results.result and results.result.data_array:
-            for row in results.result.data_array:
-                doc = {}
-                for i, col in enumerate(default_columns):
-                    doc[col] = row[i] if i < len(row) else ""
-                docs.append(doc)
+        for row in raw.get("result", {}).get("data_array", []):
+            values = dict(zip(names, row))
+            docs.append({column: values.get(column, "") for column in default_columns})
 
         # Rerank if enabled
         if reranker_enabled and reranker_model and len(docs) > num_results:

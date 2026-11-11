@@ -140,3 +140,19 @@ never dropped. Final content and Genie artifacts remain buffered until the
 AgentOPS prediction lifecycle and artifact checks finish. Closing the stream
 cancels the execution task and awaits cleanup; an already executing blocking SDK
 call may still complete. No private model reasoning is emitted.
+
+## Serving trace export
+
+`tracing.exporter: experiment` selects the public MLflow experiment exporter using
+this deployment run's `MLFLOW_EXPERIMENT_ID`, with the registered model's resolved
+`tracing.experiment_id` as fallback. An experiment name is resolved during
+registration; customer configs do not need a pre-existing ID. This avoids the
+MLflow 3.11 inference-table span processor's incompatibility with the serving
+platform's injected OpenTelemetry version. Endpoint inference payload logging
+remains an independently configured AI Gateway feature. Omitting the exporter
+preserves the existing platform selection. The supervisor uses the same shared
+experiment-export helper.
+
+The shared documentation retrieval tool now uses `WorkspaceClient` authentication
+for Vector Search rather than constructing a PAT-based client. This supports
+serving OAuth identities and maps result rows using the returned column manifest.

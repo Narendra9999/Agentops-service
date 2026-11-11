@@ -4,6 +4,7 @@ agent:
     AgentOPS
   version: 1.0.0
 tracing:
+  exporter: experiment
   experiment_name: /Shared/agentops-platform-single-validation
   uc_trace_storage_enabled: false
   default_tags:

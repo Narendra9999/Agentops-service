@@ -5,6 +5,7 @@ from dataclasses import replace
 from contextlib import nullcontext, aclosing
 from framework.inference.async_runtime import AsyncResponsesAgent, iterate_async_sync, run_blocking, run_sync
 from pathlib import Path
+from framework.observability.tracing import use_experiment_destination
 
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
@@ -35,9 +36,7 @@ class SupervisorAgent(AsyncResponsesAgent):
         # incompatibility with platform-injected OpenTelemetry 1.45. Request/response
         # inference logging remains configured independently on the outer endpoint.
         if self.settings.experiment_id:
-            from mlflow.entities import MlflowExperimentLocation
-            mlflow.set_tracking_uri("databricks")
-            mlflow.tracing.set_destination(MlflowExperimentLocation(self.settings.experiment_id))
+            use_experiment_destination(self.settings.experiment_id)
         install_native_cost_processor()
 
     def predict(self, request):

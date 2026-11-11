@@ -18,6 +18,7 @@ import time
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 
 # Public helpers remain importable here for existing team integrations.
+from framework.observability.tracing import configure_trace_destination
 from framework.observability.usage_tracking import (
     emit_standard_trace_metrics,
     invoke_with_usage_tracking,
@@ -53,6 +54,7 @@ class AgentOPSBase(AsyncResponsesAgent):
 
     def __init__(self, config: dict):
         self.config = config
+        configure_trace_destination(config)
         agent_cfg = config.get("agent", {})
         self.agent_name = agent_cfg.get("name", "unnamed_agent")
         self.agent_version = agent_cfg.get("version", "0.0.0")
