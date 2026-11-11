@@ -313,8 +313,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                     if event.type == "response.output_item.done":
                         full_output.append(event.model_dump(exclude_none=True)["item"])
                         event = event.model_copy(update={"custom_outputs": {
-                            "thread_id": thread_id,
-                            **({"user_id": user_id} if user_id else {}),
+                            **self._session_outputs(thread_id, user_id),
                             **(event.custom_outputs or {}),
                         }})
                     yield event
@@ -369,9 +368,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             )
 
         # ── Add custom_outputs (thread_id for follow-up requests) ──
-        custom_outputs = {"thread_id": thread_id}
-        if user_id:
-            custom_outputs["user_id"] = user_id
+        custom_outputs = self._session_outputs(thread_id, user_id)
         # Diagnostic: surface store status for debugging (prefix with _ to avoid conflicts)
         store_err = getattr(self.session_store, '_store_error', None)
         if store_err:
@@ -478,13 +475,15 @@ class AgentOPSBase(AsyncResponsesAgent):
             "memories": memories,
         }
 
+    @staticmethod
+    def _session_outputs(thread_id, user_id=""):
+        return {"thread_id": thread_id, **({"user_id": user_id} if user_id else {})}
+
     def _build_response(
         self, content: str, thread_id: str, user_id: str = ""
     ) -> ResponsesAgentResponse:
         """Build a ResponsesAgentResponse with standard custom_outputs."""
-        custom_outputs = {"thread_id": thread_id}
-        if user_id:
-            custom_outputs["user_id"] = user_id
+        custom_outputs = self._session_outputs(thread_id, user_id)
         return ResponsesAgentResponse(
             output=[self.create_text_output_item(text=content, id=str(uuid.uuid4()))],
             custom_outputs=custom_outputs,

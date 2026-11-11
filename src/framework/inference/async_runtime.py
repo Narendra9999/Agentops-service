@@ -13,6 +13,26 @@ from threading import Event
 from mlflow.pyfunc import ResponsesAgent
 
 
+class _StreamChannel:
+    """Shared bounded delivery and cooperative stop for both stream bridges."""
+
+    def __init__(self, notify=None):
+        self.queue = Queue(maxsize=1)
+        self.stopped = Event()
+        self.notify = notify
+
+    def send(self, kind, value):
+        while not self.stopped.is_set():
+            try:
+                self.queue.put((kind, value), timeout=0.05)
+                if self.notify is not None:
+                    self.notify()
+                return
+            except Full:
+                pass
+
+
+
 def run_sync(coroutine):
     """MLflow compatibility boundary. Async callers must use the async API.
 
@@ -49,47 +69,37 @@ async def call_async_method(target, async_name, sync_name, /, *args, **kwargs):
 
 async def iterate_blocking(factory, /, *args, **kwargs):
     """Bridge a blocking iterator; preserve order, exceptions and backpressure."""
-    queue = Queue(maxsize=1)
-    stopped = Event()
     loop = asyncio.get_running_loop()
     ready = asyncio.Event()
-
-    def send(kind, value):
-        while not stopped.is_set():
-            try:
-                queue.put((kind, value), timeout=0.05)
-                loop.call_soon_threadsafe(ready.set)
-                return
-            except Full:
-                pass
+    channel = _StreamChannel(lambda: loop.call_soon_threadsafe(ready.set))
 
     def consume():
         iterator = None
         try:
             iterator = iter(factory(*args, **kwargs))
-            while not stopped.is_set():
+            while not channel.stopped.is_set():
                 try:
                     item = next(iterator)
                 except StopIteration:
                     break
-                send('item', item)
+                channel.send('item', item)
         except Exception as exc:
-            send('error', exc)
+            channel.send('error', exc)
         finally:
             try:
                 if iterator is not None and hasattr(iterator, 'close'):
                     iterator.close()
             except Exception as exc:
-                send('error', exc)
+                channel.send('error', exc)
             finally:
-                send('done', None)
+                channel.send('done', None)
 
     worker = asyncio.create_task(run_blocking(consume))
     try:
         while True:
             ready.clear()
             try:
-                kind, value = queue.get_nowait()
+                kind, value = channel.queue.get_nowait()
             except Empty:
                 await ready.wait()
                 continue
@@ -99,7 +109,7 @@ async def iterate_blocking(factory, /, *args, **kwargs):
                 raise value
             yield value
     finally:
-        stopped.set()
+        channel.stopped.set()
         # Do not wait indefinitely for an upstream blocking request on cancel.
         # The worker closes the generator when its current operation returns.
         if worker.done():
@@ -145,17 +155,8 @@ def iterate_async_sync(factory):
     """
     from contextvars import copy_context
     from threading import Thread
-    queue = Queue(maxsize=1)
-    stopped = Event()
+    channel = _StreamChannel()
     owner = {}
-
-    def send(kind, value):
-        while not stopped.is_set():
-            try:
-                queue.put((kind, value), timeout=0.05)
-                return
-            except Full:
-                pass
 
     async def produce():
         owner['loop'] = asyncio.get_running_loop()
@@ -163,14 +164,14 @@ def iterate_async_sync(factory):
         try:
             async with aclosing(factory()) as upstream:
                 async for item in upstream:
-                    if stopped.is_set():
+                    if channel.stopped.is_set():
                         break
-                    await run_blocking(send, 'item', item)
+                    await run_blocking(channel.send, 'item', item)
         except BaseException as exc:
-            if not stopped.is_set():
-                await run_blocking(send, 'error', exc)
+            if not channel.stopped.is_set():
+                await run_blocking(channel.send, 'error', exc)
         finally:
-            await run_blocking(send, 'done', None)
+            await run_blocking(channel.send, 'done', None)
 
     context = copy_context()
     def run_owner():
@@ -184,7 +185,7 @@ def iterate_async_sync(factory):
     completed = False
     try:
         while True:
-            kind, value = queue.get()
+            kind, value = channel.queue.get()
             if kind == 'done':
                 completed = True
                 return
@@ -192,7 +193,7 @@ def iterate_async_sync(factory):
                 raise value
             yield value
     finally:
-        stopped.set()
+        channel.stopped.set()
         loop, task = owner.get('loop'), owner.get('task')
         if not completed and loop is not None and not loop.is_closed():
             try:
