@@ -5,7 +5,27 @@ import json
 def chat_model(settings, workspace, model_name):
     """Keep LangChain tool/usage handling while selecting the Gateway API route."""
     from databricks_langchain import ChatDatabricks
-    model = ChatDatabricks(model=model_name, workspace_client=workspace, temperature=0)
+    class AsyncChatDatabricks(ChatDatabricks):
+        # Pinned databricks-langchain 0.8.0 has no native _agenerate. Reuse its
+        # tool/response conversion, with a request-scoped async transport.
+        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+            from openai import AsyncOpenAI
+            from framework.inference.async_runtime import run_blocking
+            headers = await run_blocking(workspace.config.authenticate)
+            async with AsyncOpenAI(
+                api_key="databricks-sdk-auth", default_headers=headers,
+                base_url=str(self.client.base_url), max_retries=0,
+                timeout=self.timeout or 240,
+            ) as client:
+                data = self._prepare_inputs(messages, stop, **kwargs)
+                if self.use_responses_api:
+                    response = await client.responses.create(**data)
+                    return self._convert_responses_api_response_to_chat_result(response)
+                response = await client.chat.completions.create(**data)
+                return self._convert_response_to_chat_result(response)
+
+    model = AsyncChatDatabricks(model=model_name, workspace_client=workspace,
+                                temperature=0, max_retries=0)
     if settings.model_transport == "ai_gateway":
         # 0.8.0 builds an SDK-authenticated OpenAI client on the serving route.
         # Reuse its rotating authentication; change only the public base_url.

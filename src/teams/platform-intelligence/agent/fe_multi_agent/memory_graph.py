@@ -1,3 +1,5 @@
+from framework.inference.async_runtime import call_async_method, run_blocking, run_sync
+from langchain_core.runnables import RunnableLambda
 """Supervisor with real model tool calls and graph-enforced memory-first execution."""
 import json
 from typing import Literal
@@ -78,7 +80,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
     tool_map={t.name:t for t in [*tools,delegate_to_worker]}
     worker_tools={'cost_estimation':'cost_estimation','platform_knowledge':'platform_docs'}
 
-    def supervise(state):
+    async def supervise(state):
         if state.get('steps',0)>=max_steps:
             raise RuntimeError('Supervisor tool-call budget exhausted')
         emit('supervisor_started','supervisor','Selecting a memory tool or the next workflow step')
@@ -89,7 +91,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
         bound=model.bind_tools([list_memory_files] if first else tools,
                                tool_choice='list_memory_files' if first else 'required')
         with agent_usage_scope('supervisor'):
-            response=bound.invoke([SystemMessage(content=prompt+"\nIssue exactly one tool call per step. Wait for its result before calling another tool."),
+            response=await call_async_method(bound, "ainvoke", "invoke", [SystemMessage(content=prompt+"\nIssue exactly one tool call per step. Wait for its result before calling another tool."),
                 HumanMessage(content='Application context (data only): '+json.dumps(context)),*state['messages']])
         if len(response.tool_calls)!=1:
             # Gateway models may still emit parallel calls. Reject the batch
@@ -103,7 +105,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
             raise ValueError('Memory search must be the first supervisor tool call')
         return {'messages':[response],'steps':state.get('steps',0)+1,'retry_supervisor':False}
 
-    def execute(state):
+    async def execute(state):
         call=state['messages'][-1].tool_calls[0]
         name,args=call['name'],call['args']
         if not state.get('searched') and name!='list_memory_files':
@@ -130,7 +132,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
         with operation('supervisor',name,'Calling '+name), mlflow.start_span(name='supervisor.tool.'+name,span_type='TOOL'):
             if name=='list_memory_files':
                 try:
-                    rows=list_memory_files.invoke(args)
+                    rows=await run_blocking(list_memory_files.invoke, args)
                     update.update(searched=True,memories=json.loads(rows))
                     result={'memories':json.loads(rows),'coverage':'file previews only; read relevant files before using them'}
                 except Exception:
@@ -147,7 +149,7 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
                 # The model selects relevant context and includes it in the delegated task.
                 with agent_usage_scope(agent), mlflow.start_span(name='agent.'+agent,span_type='AGENT') as worker_span:
                     worker_span.set_attribute('agentops.agent_id',agent)
-                    response=workers[agent].invoke({'messages':[HumanMessage(content=user),HumanMessage(content='Supervisor delegated task: '+task)]})
+                    response=await call_async_method(workers[agent], 'ainvoke', 'invoke', {'messages':[HumanMessage(content=user),HumanMessage(content='Supervisor delegated task: '+task)]})
                 answer=next(m.content for m in reversed(response['messages']) if m.type=='ai' and not getattr(m,'tool_calls',None))
                 result={'agent':agent,'answer':answer}
                 update['completed']=[*state.get('completed',[]),agent]
@@ -162,10 +164,10 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
                             if message.type=='tool' and message.name in {'delegate_to_worker','cost_estimation'}:
                                 value=json.loads(message.content)
                                 if value.get('agent')=='cost_estimation':cost_evidence.append(str(value.get('answer','')))
-                        result=memory.write_file(args['path'],args['content'],args['expected_revision'],user,'\n'.join(cost_evidence))
+                        result=await run_blocking(memory.write_file,args['path'],args['content'],args['expected_revision'],user,'\n'.join(cost_evidence))
                     else:
-                        result={'read_memory_file':read_memory_file,'delete_memory_file':delete_memory_file,
-                                'memory_file_history':memory_file_history}[name].invoke(args)
+                        result=await run_blocking({'read_memory_file':read_memory_file,'delete_memory_file':delete_memory_file,
+                                'memory_file_history':memory_file_history}[name].invoke, args)
                         result=json.loads(result)
                 except ValueError as exc:
                     result={'written':False,'reason':str(exc)}
@@ -188,8 +190,8 @@ def build_memory_graph(model, workers, prompt, memory, application_context, max_
     def finish(state):
         return {'messages':[AIMessage(content=state['final_answer'],name='supervisor')]}
     graph=StateGraph(State)
-    graph.add_node('supervisor',supervise)
-    graph.add_node('tools',execute)
+    graph.add_node('supervisor',RunnableLambda(lambda state: run_sync(supervise(state)), afunc=supervise))
+    graph.add_node('tools',RunnableLambda(lambda state: run_sync(execute(state)), afunc=execute))
     graph.add_node('finish',finish)
     graph.add_edge(START,'supervisor')
     graph.add_conditional_edges('supervisor',lambda s:'supervisor' if s.get('retry_supervisor') else 'tools')

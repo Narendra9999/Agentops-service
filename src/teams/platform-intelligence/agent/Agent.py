@@ -8,7 +8,9 @@ from pathlib import Path
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from framework.agent_base import AgentOPSBase
-from fe_multi_agent.supervisor_agent import SupervisorAgent, stream_prediction
+from fe_multi_agent.supervisor_agent import SupervisorAgent, astream_prediction
+from framework.inference.async_runtime import AsyncResponsesAgent, call_async_method, iterate_async_sync, run_sync
+from contextlib import aclosing
 from fe_multi_agent.config import Settings
 
 
@@ -18,12 +20,12 @@ class _GuardedTurn(AgentOPSBase):
         super().__init__(config)
         self.graph_agent = graph_agent
 
-    def _process_request(self, request):
-        response = self.graph_agent.predict(request)
+    async def _aprocess_request(self, request):
+        response = await self.graph_agent.apredict(request)
         artifact = (response.custom_outputs or {}).get('genie_result')
         if artifact and self.guardrails_enabled:
             from framework.inference import extract_request_text
-            checked = self.post_llm_guardrails.check(extract_request_text(request),json.dumps(artifact),self._request_context)
+            checked = await call_async_method(self.post_llm_guardrails, "acheck", "check", extract_request_text(request),json.dumps(artifact),self._request_context)
             if checked.get('blocked'):
                 mlflow.update_current_trace(tags={'agentops.guardrail.artifacts.blocked':'true'})
                 payload = response.model_dump(exclude_none=True)
@@ -33,7 +35,7 @@ class _GuardedTurn(AgentOPSBase):
         return response
 
 
-class ChatModel(ResponsesAgent):
+class ChatModel(AsyncResponsesAgent):
     def load_context(self, context):
         self.config = deepcopy(context.model_config or {})
         block = self.config.get('multi_agent') or {}
@@ -52,13 +54,16 @@ class ChatModel(ResponsesAgent):
         self.graph_agent.load_context(context)
         mlflow.langchain.autolog()
 
-    @mlflow.trace(name='agentops.platform_intelligence', span_type='AGENT')
     def predict(self, request):
+        return run_sync(self.apredict(request))
+
+    @mlflow.trace(name='agentops.platform_intelligence', span_type='AGENT')
+    async def apredict(self, request):
         # Apply existing AgentOPS pre/post guardrails around the entire graph.
         # No shared _request_context across concurrent serving requests.
         start=time.monotonic()
         turn=_GuardedTurn(self.config, self.graph_agent)
-        response=turn.predict(request)
+        response=await turn.apredict(request)
         custom=dict(response.custom_outputs or {})
         active=mlflow.get_current_active_span()
         custom.setdefault('trace_id', active.trace_id if active else mlflow.get_last_active_trace_id())
@@ -77,7 +82,12 @@ class ChatModel(ResponsesAgent):
     def predict_stream(self, request):
         # Public activity streams immediately; final output/Genie tables/usage are
         # released only after AgentOPS post-guardrails accept the final answer.
-        yield from stream_prediction(self.predict, request)
+        yield from iterate_async_sync(lambda: self.apredict_stream(request))
+
+    async def apredict_stream(self, request):
+        async with aclosing(astream_prediction(self.apredict, request)) as stream:
+            async for event in stream:
+                yield event
 
 
 mlflow.models.set_model(ChatModel())

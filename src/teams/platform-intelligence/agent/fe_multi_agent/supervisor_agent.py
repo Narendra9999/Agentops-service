@@ -2,7 +2,8 @@ import uuid
 import json
 import os
 from dataclasses import replace
-from contextlib import nullcontext
+from contextlib import nullcontext, aclosing
+from framework.inference.async_runtime import AsyncResponsesAgent, iterate_async_sync, run_blocking, run_sync
 from pathlib import Path
 
 import mlflow
@@ -15,7 +16,7 @@ from .prompts import load_prompts
 from .usage import capture_request_usage, current_meter, install_native_cost_processor
 
 
-class SupervisorAgent(ResponsesAgent):
+class SupervisorAgent(AsyncResponsesAgent):
     """Customer-owned supervisor with cost intelligence and platform knowledge."""
     def __init__(self, settings=None):
         self.settings = settings or Settings.from_env()
@@ -35,15 +36,18 @@ class SupervisorAgent(ResponsesAgent):
             mlflow.tracing.set_destination(MlflowExperimentLocation(self.settings.experiment_id))
         install_native_cost_processor()
 
+    def predict(self, request):
+        return run_sync(self.apredict(request))
+
     @mlflow.trace(name="databricks_specialists.turn", span_type="AGENT")
     @capture_request_usage
-    def predict(self, request):
+    async def apredict(self, request):
         from databricks.sdk import WorkspaceClient
         from .progress import emit, operation
         emit('request_started', 'supervisor', 'Validating the request and preparing the agent team')
         self.settings.validate()
-        workspace = WorkspaceClient()
-        actor = workspace.current_user.me().user_name
+        workspace = await run_blocking(WorkspaceClient)
+        actor = (await run_blocking(workspace.current_user.me)).user_name
         if (request.custom_inputs or {}).get("approved_mutation"):
             raise ValueError("Case operations are no longer supported")
         execution = Execution(str(uuid.uuid4()), self.settings.tenant, actor)
@@ -51,7 +55,7 @@ class SupervisorAgent(ResponsesAgent):
         if self.settings.observer_enabled:
             from framework.observability.agent_observer import AgentObserver
             observer = AgentObserver(enabled=True)
-        prompts = load_prompts(self.settings.prompt_manifest)
+        prompts = await run_blocking(load_prompts, self.settings.prompt_manifest)
         messages = []
         for item in request.input:
             data = item.model_dump(exclude_none=True) if hasattr(item, "model_dump") else item
@@ -72,7 +76,7 @@ class SupervisorAgent(ResponsesAgent):
                 'App history are unavailable. Use only the supplied conversation and worker '
                 'results. Do not call memory tools or claim to recall, save, or delete memory. '
                 'If asked to manage memory, explain that the authenticated App is required.'}
-        graph = build_graph(turn_settings,workspace,prompts,execution,observer,application_context)
+        graph = await run_blocking(build_graph,turn_settings,workspace,prompts,execution,observer,application_context)
         trace_tags = {"agentops.execution_id": execution.execution_id,
                                          "agentops.system_id": "fe-platform-engineering",
                                          "agentops.observer_enabled": str(self.settings.observer_enabled).lower(),
@@ -80,7 +84,7 @@ class SupervisorAgent(ResponsesAgent):
         mlflow.update_current_trace(tags=trace_tags)
         scope = observer.agent("platform_team", execution.execution_id, span_name="workflow.execution", span_type="CHAIN") if observer else nullcontext()
         with scope:
-            result = graph.invoke({"messages": messages}, config={"recursion_limit": self.settings.max_steps, "callbacks": [current_meter()]})
+            result = await graph.ainvoke({"messages": messages}, config={"recursion_limit": self.settings.max_steps, "callbacks": [current_meter()]})
             text = result["messages"][-1].content
         if isinstance(text, list):
             text = "\n".join(p.get("text", "") for p in text if isinstance(p, dict))
@@ -98,79 +102,91 @@ class SupervisorAgent(ResponsesAgent):
         output_reducer=ResponsesAgent.responses_agent_output_reducer,
     )
     def predict_stream(self, request):
-        yield from stream_prediction(self.predict, request)
+        yield from iterate_async_sync(lambda: self.apredict_stream(request))
+
+    async def apredict_stream(self, request):
+        async with aclosing(astream_prediction(self.apredict, request)) as stream:
+            async for event in stream:
+                yield event
 
 
 def stream_prediction(predict, request):
-    import queue
-    import threading
-    from contextvars import copy_context
+    async def invoke(request):
+        return await run_blocking(predict, request)
+    yield from iterate_async_sync(lambda: astream_prediction(invoke, request))
+
+
+async def astream_prediction(predict, request):
+    """Stream public activity; release final output only after middleware accepts it."""
+    import asyncio
     from .progress import progress_sink
     from mlflow.types.responses import ResponsesAgentStreamEvent
-    events = queue.Queue()
-    stopped = threading.Event()
-    # Playground supports the documented output-item stream. The custom App
-    # explicitly opts into richer progress/lifecycle events; Python accepting an
-    # event type is not evidence that every serving client can render it.
-    custom_inputs = getattr(request, 'custom_inputs', None) or {}
-    activity_stream = custom_inputs.get('stream_activity') is True
+    loop = asyncio.get_running_loop()
+    events = asyncio.Queue(maxsize=64)
+    stopped = False
+    activity_stream = (getattr(request, 'custom_inputs', None) or {}).get('stream_activity') is True
     response_id = str(uuid.uuid4())
-    progress_response = {'id': response_id, 'object': 'response',
-                         'status': 'in_progress', 'output': []}
+    progress_response = {'id': response_id, 'object': 'response', 'status': 'in_progress', 'output': []}
 
     def publish(activity):
-        if stopped.is_set():
-            raise RuntimeError('Execution stream closed; no further steps requested')
-        events.put(('activity', activity))
+        if stopped:
+            return
+        # Only activity can be coalesced when a slow consumer fills the queue;
+        # results and failures are delivered separately through the owner task.
+        def enqueue():
+            if not stopped and not events.full():
+                events.put_nowait(activity)
+        loop.call_soon_threadsafe(enqueue)
 
-    def execute():
-        try:
-            with progress_sink(publish):
-                response = predict(request)
-            events.put(('result', response))
-        except Exception as exc:
-            from .services import GenieWaitTimeout
-            details = {'code': 'execution_failed', 'message': 'The agent execution failed. Inspect the trace for the failed operation.'}
-            if isinstance(exc, GenieWaitTimeout):
-                details = {'code': 'genie_timeout', 'message': str(exc), **exc.details}
-            # The stream returns an error event, so mark its otherwise-successful
-            # generator span explicitly. Inner execution spans retain the exception.
-            active = mlflow.get_current_active_span()
-            if active:
-                details['trace_id'] = active.trace_id
-            events.put(('error', details))
+    async def execute():
+        with progress_sink(publish):
+            return await predict(request)
 
-    context = copy_context()
-    threading.Thread(target=lambda: context.run(execute), daemon=True).start()
+    task = asyncio.create_task(execute())
+    pending = None
     try:
         while True:
-            try:
-                kind, data = events.get(timeout=2)
-            except queue.Empty:
-                if activity_stream:
-                    yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response)
-                continue
-            if kind == 'activity':
+            pending = asyncio.create_task(events.get())
+            done, _ = await asyncio.wait({task, pending}, timeout=2,
+                                          return_when=asyncio.FIRST_COMPLETED)
+            if pending in done:
                 if activity_stream:
                     yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response,
-                                                    custom_outputs={'activity': data})
-            elif kind == 'result':
-                for index, item in enumerate(data.output):
-                    yield ResponsesAgentStreamEvent(type='response.output_item.done', item=item, output_index=index,
-                                                    custom_outputs=data.custom_outputs)
-                complete = {'id': response_id, 'object': 'response', 'status': 'completed',
-                            **data.model_dump(exclude_none=True)}
-                if activity_stream:
-                    yield ResponsesAgentStreamEvent(type='response.completed', response=complete,
-                                                    custom_outputs=data.custom_outputs)
-                return
+                        custom_outputs={'activity': pending.result()})
             else:
-                mlflow.update_current_trace(state="ERROR")
-                if not activity_stream:
-                    raise RuntimeError(data['message'])
-                yield ResponsesAgentStreamEvent(type='error', message=data['message'],
-                                                custom_outputs={'failure': data})
-                return
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+            pending = None
+            if task.done() and events.empty():
+                break
+            if not done and activity_stream:
+                yield ResponsesAgentStreamEvent(type='response.in_progress', response=progress_response)
+        response = await task
+        for index, item in enumerate(response.output):
+            yield ResponsesAgentStreamEvent(type='response.output_item.done', item=item, output_index=index,
+                                             custom_outputs=response.custom_outputs)
+        if activity_stream:
+            yield ResponsesAgentStreamEvent(type='response.completed',
+                response={'id': response_id, 'object': 'response', 'status': 'completed',
+                          **response.model_dump(exclude_none=True)}, custom_outputs=response.custom_outputs)
+    except Exception as exc:
+        from .services import GenieWaitTimeout
+        mlflow.update_current_trace(state='ERROR')
+        if not activity_stream:
+            raise
+        details = {'code': 'execution_failed',
+                   'message': 'The agent execution failed. Inspect the trace for the failed operation.'}
+        if isinstance(exc, GenieWaitTimeout):
+            details = {'code': 'genie_timeout', 'message': str(exc), **exc.details}
+        active = mlflow.get_current_active_span()
+        if active:
+            details['trace_id'] = active.trace_id
+        yield ResponsesAgentStreamEvent(type='error', message=details['message'],
+                                         custom_outputs={'failure': details})
     finally:
-        # Cooperative boundary only: in-flight model/tool calls can still finish.
-        stopped.set()
+        stopped = True
+        if pending is not None:
+            pending.cancel()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, *([pending] if pending is not None else []), return_exceptions=True)

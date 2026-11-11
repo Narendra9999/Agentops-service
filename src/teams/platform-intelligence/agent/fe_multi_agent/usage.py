@@ -148,31 +148,45 @@ def summary_tags(summary):
     return tags
 
 
-def capture_request_usage(function):
-    @wraps(function)
-    def wrapped(self, *args, **kwargs):
-        import mlflow
-        # Serving can reset MLflow configuration after model import. Reconcile
-        # the single shared processor; rates remain exclusively request-scoped.
-        install_native_cost_processor()
-        meter = UsageMeter(getattr(self.settings, 'usage_rates_per_million', {}))
-        token = _meter.set(meter)
+@contextmanager
+def _request_usage(settings):
+    import mlflow
+    install_native_cost_processor()
+    meter = UsageMeter(getattr(settings, 'usage_rates_per_million', {}))
+    token = _meter.set(meter)
+    try:
+        yield meter
+    finally:
         try:
-            response = function(self, *args, **kwargs)
-            summary = meter.summary()
-            payload = response.model_dump(exclude_none=True)
-            payload['usage'] = {k: summary[k] for k in ('input_tokens','output_tokens','total_tokens')}
-            payload['usage']['input_tokens_details'] = {'cached_tokens': summary['cached_tokens']}
-            payload['usage']['output_tokens_details'] = {'reasoning_tokens': summary['reasoning_tokens']}
-            custom = payload.get('custom_outputs') or {}
-            tags = {**custom.get('tags', {}), **summary_tags(summary)}
-            payload['custom_outputs'] = {**custom, 'usage_metrics': summary, 'tags': tags}
-            return type(response)(**payload)
+            mlflow.update_current_trace(tags=summary_tags(meter.summary()))
+        except Exception:
+            logger.warning('Usage tag export failed', exc_info=False)
         finally:
-            try:
-                mlflow.update_current_trace(tags=summary_tags(meter.summary()))
-            except Exception:
-                logger.warning('Usage tag export failed',exc_info=False)
-            finally:
-                _meter.reset(token)
+            _meter.reset(token)
+
+
+def _response_with_usage(response, meter):
+    summary = meter.summary()
+    payload = response.model_dump(exclude_none=True)
+    payload['usage'] = {k: summary[k] for k in ('input_tokens', 'output_tokens', 'total_tokens')}
+    payload['usage']['input_tokens_details'] = {'cached_tokens': summary['cached_tokens']}
+    payload['usage']['output_tokens_details'] = {'reasoning_tokens': summary['reasoning_tokens']}
+    custom = payload.get('custom_outputs') or {}
+    tags = {**custom.get('tags', {}), **summary_tags(summary)}
+    payload['custom_outputs'] = {**custom, 'usage_metrics': summary, 'tags': tags}
+    return type(response)(**payload)
+
+
+def capture_request_usage(function):
+    from inspect import iscoroutinefunction
+    if iscoroutinefunction(function):
+        @wraps(function)
+        async def wrapped(self, *args, **kwargs):
+            with _request_usage(self.settings) as meter:
+                return _response_with_usage(await function(self, *args, **kwargs), meter)
+    else:
+        @wraps(function)
+        def wrapped(self, *args, **kwargs):
+            with _request_usage(self.settings) as meter:
+                return _response_with_usage(function(self, *args, **kwargs), meter)
     return wrapped

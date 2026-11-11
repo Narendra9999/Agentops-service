@@ -115,3 +115,26 @@ Streaming output checks run after delivery and flag violations in trace tags;
 they cannot retract delivered tokens. Interrupted streams do not persist partial
 answers as completed sessions. A persistence operation already underway may
 complete even if its caller is cancelled.
+
+## Platform Intelligence async team
+
+The Platform Intelligence team now implements native `apredict` and
+`apredict_stream`. Its synchronous ResponsesAgent entry points are adapters.
+Both supervisor graphs use async model/worker dispatch; their synchronous graph
+APIs delegate to the same node implementation. The embedded documentation worker
+awaits its prebuilt graph. Blocking SDK, Genie and Lakebase operations remain
+thread-adapted with no claim of remote cancellation or rollback.
+
+The pinned `databricks-langchain==0.8.0` implements synchronous model transport.
+The team's `chat_model` factory adds `_agenerate` using a request-scoped
+`AsyncOpenAI` client, refreshed SDK authentication and the configured serving or
+AI Gateway base URL. It reuses the pinned package's input/tool/response converters
+and sets automatic retries to zero. Async client contexts close on each model
+call so clients are not reused across the synchronous serving adapter's loops.
+
+Activity streaming uses a request-owned async task and a bounded activity queue.
+Activity may be coalesced for slow consumers; final responses and failures are
+never dropped. Final content and Genie artifacts remain buffered until the
+AgentOPS prediction lifecycle and artifact checks finish. Closing the stream
+cancels the execution task and awaits cleanup; an already executing blocking SDK
+call may still complete. No private model reasoning is emitted.
