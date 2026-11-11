@@ -1,0 +1,50 @@
+{
+  "endpoint": "fe-platform-single-validation",
+  "version": "6",
+  "scenarios": {
+    "prediction": {
+      "trace_id": "tr-c2ad55275b3841dbdfcab550311beb97",
+      "state": "OK",
+      "tokens": "3289",
+      "cost_usd": "0.004133",
+      "status": "passed"
+    },
+    "streaming": {
+      "trace_id": "tr-5fcdd7bc63fd19bfb75a7a7ff3dcc314",
+      "state": "OK",
+      "tokens": "4854",
+      "cost_usd": "0.005752",
+      "status": "passed"
+    },
+    "input_block": {
+      "trace_id": "tr-6293e56fdffaa26a131e088789b010b9",
+      "state": "OK",
+      "tokens": null,
+      "cost_usd": null,
+      "status": "passed"
+    }
+  },
+  "pipeline_run_id": 1113150601681562,
+  "pipeline_result": "SUCCESS",
+  "pre_evaluation_id": "0f43cae4-8997-48de-892a-15a123c1ba71",
+  "post_evaluation_id": "33dd836f-ad07-43c8-9716-d559fde2e6c9",
+  "quality_scores": {
+    "platform_evidence": 1.0,
+    "correctness": 1.0,
+    "relevance_to_query": 1.0,
+    "safety": 1.0
+  },
+  "guardrail_accuracy": 1.0,
+  "focused_integration_tests_passed": 55,
+  "endpoint_state": {
+    "ready": "READY",
+    "config_update": "NOT_UPDATING",
+    "only_version": "6"
+  },
+  "every_stream_event_checked": true,
+  "allowed_stream_event_types": [
+    "response.output_text.delta",
+    "response.output_text.annotation.added",
+    "response.output_item.done"
+  ]
+}

@@ -37,3 +37,25 @@ middleware and supervisor validation passed 252 tests. App deployment remains
 deferred.
 
 Sanitized results: [validation-async-runtime.json](deployment/validation-async-runtime.json).
+
+## Playground stream correction: version 6
+
+[Run 1113150601681562](https://fevm-classic-stable-naren.cloud.databricks.com/jobs/180098491824601/runs/1113150601681562?o=7474644082064164)
+completed all six stages successfully and deployed version 6. All four pre- and
+post-deployment quality scores and guardrail accuracy were 1.0. After old-version
+cleanup, the endpoint was READY and NOT_UPDATING, serving only version 6.
+
+Version 5 forwarded provider lifecycle envelopes such as `response.created`.
+MLflow's permissive event validator accepted these, but Playground rejected the
+stream even when generation and its trace succeeded. The shared provider adapter
+now emits output deltas, annotations and completed items; provider completion
+continues to record final usage internally. Failures and truncated streams still
+raise errors. Nonstreaming prediction retains the ResponsesAgent output array.
+
+The regression includes lifecycle events before the answer. The live check now
+validates the event type of every streamed event, fixing the earlier coverage gap
+where only completed items were checked. All 55 focused integration tests and
+live prediction, streaming with citations, and input blocking passed. This verifies
+the wire-event contract; it is not a browser-driven Playground/Review App test.
+
+Sanitized results: [validation-playground-v6.json](deployment/validation-playground-v6.json).
