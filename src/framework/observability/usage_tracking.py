@@ -160,6 +160,13 @@ class _UsageCaptureCallback(BaseCallbackHandler):
                     return
 
 
+def _record_invocation_usage(callback, capture, result, request_context, model_name):
+    metadata = getattr(callback, "usage_metadata", None) or {}
+    for usages in (metadata.values(), capture.usages, [response_usage(result)]):
+        if record_usage(usages, request_context, model_name):
+            break
+
+
 def invoke_with_usage_tracking(runnable, payload, request_context=None, model_name=""):
     """Invoke once; prefer standard metadata, then callback, then response usage."""
     from contextlib import nullcontext
@@ -168,8 +175,17 @@ def invoke_with_usage_tracking(runnable, payload, request_context=None, model_na
     manager = get_usage_metadata_callback() if get_usage_metadata_callback else nullcontext(None)
     with manager as callback:
         result = runnable.invoke(payload, config={"callbacks": [capture]})
-    metadata = getattr(callback, "usage_metadata", None) or {}
-    for usages in (metadata.values(), capture.usages, [response_usage(result)]):
-        if record_usage(usages, request_context, model_name):
-            break
+    _record_invocation_usage(callback, capture, result, request_context, model_name)
+    return result
+
+
+async def ainvoke_with_usage_tracking(runnable, payload, request_context=None, model_name=""):
+    """Use LangChain's native ainvoke with the same single-source accounting."""
+    from contextlib import nullcontext
+
+    capture = _UsageCaptureCallback()
+    manager = get_usage_metadata_callback() if get_usage_metadata_callback else nullcontext(None)
+    with manager as callback:
+        result = await runnable.ainvoke(payload, config={"callbacks": [capture]})
+    _record_invocation_usage(callback, capture, result, request_context, model_name)
     return result

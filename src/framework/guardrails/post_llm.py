@@ -39,6 +39,11 @@ class PostLLMGuardrails:
         self.hallucination_threshold = config.get("hallucination_threshold", 0.5)
         self.min_response_length = config.get("min_response_length", 20)
 
+    async def acheck(self, user_message, response, context=None):
+        """Awaitable check boundary; remote integrations may override natively."""
+        from framework.inference.async_runtime import run_blocking
+        return await run_blocking(self.check, user_message, response, context)
+
     @mlflow.trace(span_type="GUARDRAIL", name="post_llm_check")
     def check(
         self,

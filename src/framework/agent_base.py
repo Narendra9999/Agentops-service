@@ -23,6 +23,9 @@ from framework.observability.usage_tracking import (
     record_response_usage,
 )
 
+from copy import copy
+from framework.inference.async_runtime import AsyncResponsesAgent, call_async_method, run_blocking, run_sync
+
 from framework.guardrails.pre_llm import PreLLMGuardrails
 from framework.guardrails.post_llm import PostLLMGuardrails
 from framework.session.session_store import SessionStore
@@ -31,7 +34,7 @@ from framework.inference import extract_request_text, extract_response_text
 logger = logging.getLogger(__name__)
 
 
-class AgentOPSBase(ResponsesAgent):
+class AgentOPSBase(AsyncResponsesAgent):
     """
     Base agent class for the AgentOPS framework.
     Wraps agent logic with pre/post LLM guardrails and MLflow tracing.
@@ -72,6 +75,13 @@ class AgentOPSBase(ResponsesAgent):
             "agentops.environment": environment,
             **tracing_config.get("default_tags", {}),
         }
+
+    def _async_request_agent(self):
+        # The legacy lifecycle assigns request context on self. Clone the turn
+        # so concurrent async requests cannot overwrite each other's state.
+        turn = copy(self)
+        turn._request_context = {}
+        return turn
 
     @staticmethod
     def _resolve_environment(tracing_config: dict) -> str:
@@ -181,7 +191,20 @@ class AgentOPSBase(ResponsesAgent):
         if not completed:
             raise RuntimeError("Responses stream ended without a response.completed event.")
 
-    def predict(
+    def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        """Synchronous MLflow contract over the shared async request lifecycle."""
+        # Direct synchronous callers retain the historical request context.
+        return run_sync(self._apredict_turn(request))
+
+    async def apredict(self, request):
+        turn = self._async_request_agent()
+        return await turn._apredict_turn(request)
+
+    async def _aprocess_request(self, request):
+        """Override for native async customer agents; legacy hooks run off-loop."""
+        return await run_blocking(self._process_request, request)
+
+    async def _apredict_turn(
         self, request: ResponsesAgentRequest,
     ) -> ResponsesAgentResponse:
         """
@@ -221,7 +244,7 @@ class AgentOPSBase(ResponsesAgent):
         has_client_history = len(messages) > 1
         conversation_context = ""
         if self.session_store.enabled and thread_id and not has_client_history:
-            self._load_session_history(thread_id, messages)
+            await run_blocking(self._load_session_history, thread_id, messages)
             messages = self._augmented_messages
             request = ResponsesAgentRequest.model_validate({**request.model_dump(exclude_none=True), "input": messages})
             # Build context string from prior user messages for intent detection
@@ -240,7 +263,7 @@ class AgentOPSBase(ResponsesAgent):
         # Runs AFTER session history load so the intent check can see
         # conversation context from prior turns via conversation_context.
         if self.guardrails_enabled:
-            pre_result = self.pre_llm_guardrails.check(
+            pre_result = await call_async_method(self.pre_llm_guardrails, "acheck", "check",
                 user_message, conversation_context=conversation_context)
             if pre_result.get("blocked"):
                 mlflow.update_current_trace(tags={
@@ -260,19 +283,19 @@ class AgentOPSBase(ResponsesAgent):
         # If user_id is provided, search Lakebase for relevant facts about this user
         # and make them available to the agent via _request_context.
         if self.session_store.memory_enabled and user_id and user_message:
-            self._recall_long_term_memory(user_id, user_message)
+            await run_blocking(self._recall_long_term_memory, user_id, user_message)
 
         # ── Agent Processing (subclass implements this) ──
         # _request_context is a plain dict that subclasses can populate
         # with data for post-LLM guardrails (e.g., retrieved_docs).
         self._request_context["thread_id"] = thread_id
         self._request_context["user_id"] = user_id
-        response = self._process_request(request)
+        response = await self._aprocess_request(request)
 
         # ── Post-LLM Guardrails ──
         if self.guardrails_enabled:
             response_text = extract_response_text(response)
-            post_result = self.post_llm_guardrails.check(user_message, response_text, self._request_context)
+            post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, response_text, self._request_context)
             if post_result.get("blocked"):
                 mlflow.update_current_trace(tags={
                     "agentops.guardrail.post_llm.blocked": "true",
@@ -300,7 +323,7 @@ class AgentOPSBase(ResponsesAgent):
                 pass
 
             model_endpoint = getattr(self, "llm_endpoint", "")
-            self.session_store.save_full_session(
+            await run_blocking(self.session_store.save_full_session,
                 session_id=thread_id,
                 messages=messages,
                 response_text=response_text,

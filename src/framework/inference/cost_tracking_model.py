@@ -122,7 +122,10 @@ def _record_usage(response):
         logger.warning("Response usage tag export failed", exc_info=False)
 
 
-class CostTrackingResponsesModel(ResponsesAgent):
+from framework.inference.async_runtime import AsyncResponsesAgent
+
+
+class CostTrackingResponsesModel(AsyncResponsesAgent):
     """Responses serving wrapper for native agents and PythonModel implementations.
 
     At load_context time it detects which pattern the team's ChatModel uses and

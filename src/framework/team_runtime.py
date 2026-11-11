@@ -41,6 +41,13 @@ class TeamRuntime:
         timeout = (self.config.get('pipeline') or {}).get('request_timeout_seconds', 240)
         return invoke_endpoint(endpoint, self.request(query), timeout_seconds=timeout, workspace=workspace)
 
+    async def ainvoke(self, endpoint, query, *, workspace=None):
+        from framework.inference.client import ainvoke_endpoint
+        from framework.inference.async_runtime import run_blocking
+        timeout = (self.config.get('pipeline') or {}).get('request_timeout_seconds', 240)
+        payload = await run_blocking(self.request, query)
+        return await ainvoke_endpoint(endpoint, payload, timeout_seconds=timeout, workspace=workspace)
+
     def request(self, query):
         if self.adapter:
             return self.adapter.build_request(str(query), self.owner)

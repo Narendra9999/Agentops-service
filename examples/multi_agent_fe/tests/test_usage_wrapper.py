@@ -15,6 +15,7 @@ def wrapper(monkeypatch):
                'mlflow':NS(trace=lambda **kwargs:lambda fn:fn),'ResponsesAgentRequest':object,
                'ResponsesAgentResponse':object,'ResponsesAgentStreamEvent':object,'Generator':Generator,
                'logger':NS(warning=lambda *a,**k:None)}
+    namespace['AsyncResponsesAgent'] = namespace['ResponsesAgent']
     exec(compile(ast.Module(body=nodes,type_ignores=[]),str(source),'exec'),namespace)
     result=namespace['CostTrackingResponsesModel']()
     result._inner_is_responses_agent=True

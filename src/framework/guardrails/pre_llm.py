@@ -56,6 +56,13 @@ class PreLLMGuardrails:
         self.allowed_intents = config.get("allowed_intents", [])
         self.intent_keywords = config.get("intent_keywords", {})
 
+    async def acheck(self, user_message, conversation_context=""):
+        """Awaitable check boundary; remote integrations may override natively."""
+        from copy import copy
+        from framework.inference.async_runtime import run_blocking
+        # check() stores conversation context; never share it across requests.
+        return await run_blocking(copy(self).check, user_message, conversation_context)
+
     @mlflow.trace(span_type="GUARDRAIL", name="pre_llm_check")
     def check(self, user_message: str, conversation_context: str = "") -> dict:
         """Run all enabled pre-LLM guardrail checks in order.
