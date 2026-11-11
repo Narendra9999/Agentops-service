@@ -143,6 +143,13 @@ class CostTrackingResponsesModel(AsyncResponsesAgent):
         if hasattr(self._inner, "load_context"):
             self._inner.load_context(context)
 
+    def _async_request_agent(self):
+        from copy import copy
+        turn = copy(self)
+        if isinstance(self._inner, AsyncResponsesAgent):
+            turn._inner = self._inner._async_request_agent()
+        return turn
+
     # ── Inference entry points ────────────────────────────────────────────────
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:

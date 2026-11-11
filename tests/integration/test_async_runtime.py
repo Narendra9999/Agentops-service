@@ -92,7 +92,8 @@ def test_stream_close_releases_bounded_worker():
     run(scenario())
 
 
-def test_base_concurrent_turns_isolate_request_context(monkeypatch):
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_base_concurrent_turns_isolate_request_context(monkeypatch, wrapped):
     barrier = threading.Barrier(2)
 
     class Echo(AgentOPSBase):
@@ -108,6 +109,15 @@ def test_base_concurrent_turns_isolate_request_context(monkeypatch):
     agent.session_store.memory_enabled = False
     agent.session_store._store_error = None
     agent.session_store._uc_last_error = None
+    if wrapped:
+        import importlib
+        from unittest.mock import patch
+        with patch("mlflow.models.set_model"):
+            module = importlib.import_module("framework.inference.cost_tracking_model")
+        wrapper = module.CostTrackingResponsesModel()
+        wrapper._inner = agent
+        wrapper._inner_is_responses_agent = True
+        agent = wrapper
 
     async def scenario():
         requests = [ResponsesAgentRequest(input=[{'role': 'user', 'content': 'hello'}],

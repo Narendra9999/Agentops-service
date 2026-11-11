@@ -51,11 +51,14 @@ async def iterate_blocking(factory, /, *args, **kwargs):
     """Bridge a blocking iterator; preserve order, exceptions and backpressure."""
     queue = Queue(maxsize=1)
     stopped = Event()
+    loop = asyncio.get_running_loop()
+    ready = asyncio.Event()
 
     def send(kind, value):
         while not stopped.is_set():
             try:
                 queue.put((kind, value), timeout=0.05)
+                loop.call_soon_threadsafe(ready.set)
                 return
             except Full:
                 pass
@@ -84,10 +87,11 @@ async def iterate_blocking(factory, /, *args, **kwargs):
     worker = asyncio.create_task(run_blocking(consume))
     try:
         while True:
+            ready.clear()
             try:
                 kind, value = queue.get_nowait()
             except Empty:
-                await asyncio.sleep(0.005)
+                await ready.wait()
                 continue
             if kind == 'done':
                 break
