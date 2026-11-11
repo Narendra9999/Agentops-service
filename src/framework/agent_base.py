@@ -29,6 +29,7 @@ from framework.inference.async_runtime import AsyncResponsesAgent, call_async_me
 
 from framework.guardrails.pre_llm import PreLLMGuardrails
 from framework.guardrails.post_llm import PostLLMGuardrails
+from framework.guardrails.middleware import PIIRedactionMiddleware
 from framework.session.session_store import SessionStore
 from framework.inference import extract_request_text, extract_response_text
 
@@ -59,6 +60,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         # Initialize guardrails from config
         gr_config = config.get("guardrails", {})
         self.guardrails_enabled = gr_config.get("enabled", True)
+        self.guardrail_middleware = PIIRedactionMiddleware(gr_config)
         self.pre_llm_guardrails = PreLLMGuardrails(gr_config.get("pre_llm", {}))
         self.post_llm_guardrails = PostLLMGuardrails(gr_config.get("post_llm", {}))
 
@@ -257,22 +259,24 @@ class AgentOPSBase(AsyncResponsesAgent):
         # messages like "What happens if I set it too low?" get blocked
         # because they lack Databricks keywords on their own.
         has_client_history = len(messages) > 1
-        conversation_context = ""
         if self.session_store.enabled and thread_id and not has_client_history:
             await self._aload_session_history(thread_id, messages)
             messages = self._augmented_messages
             request = ResponsesAgentRequest.model_validate({**request.model_dump(exclude_none=True), "input": messages})
-            # Build context string from prior user messages for intent detection
-            if len(messages) > 1:
-                conversation_context = " ".join(
-                    extract_request_text({"input": [message]})
-                    for message in messages[:-1] if message.get("role") == "user"
-                )
         elif has_client_history:
             mlflow.update_current_trace(tags={
                 "agentops.session.history_turns": str(len(messages) - 1),
                 "agentops.session.source": "client",
             })
+
+        if self.guardrails_enabled:
+            request = await self.guardrail_middleware.process_request(request)
+            messages = request.model_dump(exclude_none=True)["input"]
+            user_message = extract_request_text(request)
+            conversation_context = " ".join(
+                extract_request_text({"input": [message]})
+                for message in messages[:-1] if message.get("role") == "user"
+            )
 
         # ── Pre-LLM Guardrails ──
         # Runs AFTER session history load so the intent check can see
@@ -316,13 +320,15 @@ class AgentOPSBase(AsyncResponsesAgent):
                             **self._session_outputs(thread_id, user_id),
                             **(event.custom_outputs or {}),
                         }})
-                    yield event
+                    if not (self.guardrails_enabled and self.guardrail_middleware.buffers_output):
+                        yield event
             response = ResponsesAgentResponse(output=full_output)
         else:
             response = await self._aprocess_request(request)
 
         # ── Post-LLM Guardrails ──
         if self.guardrails_enabled:
+            response = await self.guardrail_middleware.process_response(response)
             response_text = extract_response_text(response)
             post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, response_text, self._request_context)
             if post_result.get("blocked"):
@@ -330,7 +336,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                     "agentops.guardrail.post_llm.blocked": "true",
                     "agentops.guardrail.post_llm.blocked_by": post_result.get("blocked_by", "unknown"),
                 })
-                if not streaming:
+                if not streaming or self.guardrail_middleware.buffers_output:
                     yield self._build_response(
                         post_result.get("message", "Response filtered for safety."),
                         thread_id, user_id,
@@ -380,7 +386,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             custom_outputs.update(response.custom_outputs)
         response.custom_outputs = custom_outputs
 
-        if not streaming:
+        if not streaming or (self.guardrails_enabled and self.guardrail_middleware.buffers_output):
             yield response
 
     @mlflow.trace(name="load_session_history", span_type="RETRIEVER")
