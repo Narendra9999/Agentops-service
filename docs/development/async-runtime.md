@@ -2,8 +2,8 @@
 
 AgentOPS exposes `await agent.apredict(request)` and
 `async for event in agent.apredict_stream(request)` to async applications.
-`AgentOPSBase` uses one async request lifecycle for prediction, shared with its
-synchronous `predict` entry point. It awaits input checks, the customer hook,
+`AgentOPSBase` uses one async middleware lifecycle for prediction and streaming,
+shared with its synchronous MLflow entry points. It awaits input checks, the customer hook,
 output checks and persistence in their original order. Each async request gets
 an isolated turn object, including its request context. Customer-specific shared
 clients and mutable fields must still be safe for concurrent access.
@@ -48,7 +48,7 @@ preserved; this change does not introduce token buffering for legacy streams.
 - `TeamRuntime.ainvoke`: the existing team request adapter plus async endpoint I/O.
 - `ainvoke_with_usage_tracking`: native LangChain `ainvoke`, with the same callback
   selection and accounting as `invoke_with_usage_tracking`.
-- `AsyncResponsesAgent`: compatibility async APIs for existing team agents and the
+- `AsyncResponsesAgent`: compatibility async APIs available to team agents and the
   shared serving wrapper. A team's native implementation can override those APIs.
 
 Streaming compatibility consumes each synchronous iterator on one worker to
@@ -68,3 +68,50 @@ context propagation, concurrent request isolation, ordered streaming, error
 propagation, bounded buffering/cleanup, async HTTP, native async guards/hooks,
 and token accounting without model retries. Existing ResponsesAgent save/load,
 streaming, guardrail and session tests cover synchronous compatibility.
+
+## Shared lifecycle, deadlines and resource ownership
+
+`AgentOPSBase._run_lifecycle` owns history loading, input guardrails, memory
+recall, customer invocation, output guardrails, usage metrics and persistence.
+Both prediction and streaming execute this implementation, with isolated turn
+objects for async callers. Native streaming integrations override
+`_aprocess_request_stream`; existing `_process_request_stream` hooks remain
+supported off-loop. The synchronous streaming entry point uses one producer task
+on its own loop, with a one-event queue, rather than creating a new task per token.
+
+Optional server-side configuration:
+
+```yaml
+middleware:
+  timeout_seconds: 120
+```
+
+Absent this setting, no additional whole-request deadline is imposed. A configured
+value must be positive and finite. The deadline includes checks, agent work and
+persistence. Native operations receive cancellation; an already executing blocking
+SDK call may continue. Requests are never automatically replayed.
+
+Request integrations can register an async resource with:
+
+```python
+client = await self._request_resources.enter_async_context(client_context())
+```
+
+The request scope closes resources on completion, errors, cancellation, timeout,
+and explicit early stream closure. Creation, use and cleanup occur in the same
+task. This provides an MCP-compatible ownership primitive; it is not an MCP
+transport, tool registry, authentication implementation or persistent session pool.
+Do not share these request resources across turns. Async consumers stopping early
+must use `contextlib.aclosing`; synchronous consumers must close their iterator.
+
+Custom storage integrations may expose native async `aget_history`,
+`arecall_user_memories` and `asave_full_session`. Middleware prefers those methods;
+otherwise it offloads the existing synchronous methods. History and memory
+normalization remain shared across both paths. The built-in DatabricksStore
+backend has not been migrated to a separate async database driver or schema.
+
+Input blocks prevent invocation. Nonstreaming output blocks replace the answer.
+Streaming output checks run after delivery and flag violations in trace tags;
+they cannot retract delivered tokens. Interrupted streams do not persist partial
+answers as completed sessions. A persistence operation already underway may
+complete even if its caller is cancelled.

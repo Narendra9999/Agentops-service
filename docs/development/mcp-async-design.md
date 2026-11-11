@@ -49,6 +49,12 @@ that overhead with the target servers. Retain the MCP session for the full turn,
 not separately for every tool call. Customer-owned async orchestration receives
 adapters for the configured tools; AgentOPS does not select tools or plan work.
 
+The shared middleware owns only the integrations explicitly configured for it.
+If the customer agent owns its MCP clients, its adapter must keep those resources
+inside the customer's runtime; AgentOPS must not move them across event loops or
+replace the customer's execution loop. Framework MCP support can be delivered
+without changing the existing supervisor or its graph.
+
 ## Optional persistent sessions
 
 For a FastAPI application, open connections in the application lifespan and close

@@ -240,3 +240,238 @@ def test_history_recall_and_persistence_run_off_loop_in_order():
                                    custom_inputs={'user_id': 'owner', 'thread_id': 'session'})
     run(agent.apredict(request))
     assert order == ['history', 'memory', 'agent', 'save']
+
+
+def middleware_agent(agent_type, config=None):
+    from types import SimpleNamespace
+    agent = agent_type({'guardrails': {'enabled': False}, **(config or {})})
+    agent.session_store = SimpleNamespace(enabled=False, memory_enabled=False,
+        _store_error=None, _uc_last_error=None)
+    return agent
+
+
+def test_shared_stream_lifecycle_awaits_guards_and_native_storage():
+    from mlflow.types.responses import ResponsesAgentStreamEvent
+    from types import SimpleNamespace
+    order = []
+
+    class Guard:
+        async def acheck(self, *args, **kwargs):
+            order.append('guard')
+            return {'blocked': False}
+
+    class Native(AgentOPSBase):
+        async def _aprocess_request_stream(self, request):
+            order.append('agent')
+            assert self._request_context['user_memories'] == ['pattern']
+            yield ResponsesAgentStreamEvent(type='response.output_item.done',
+                item=self.create_text_output_item(text='answer', id='answer'))
+
+    async def history(*args, **kwargs):
+        order.append('history')
+        return [{'role': 'user', 'content': 'earlier'}]
+
+    async def memory(*args, **kwargs):
+        order.append('memory')
+        return ['pattern']
+
+    async def save(**kwargs):
+        order.append('save')
+        assert len(kwargs['messages']) == 2
+        assert kwargs['response_text'] == 'answer'
+
+    agent = middleware_agent(Native)
+    agent.guardrails_enabled = True
+    agent.pre_llm_guardrails = agent.post_llm_guardrails = Guard()
+    agent.session_store = SimpleNamespace(enabled=True, memory_enabled=True,
+        _store=None, _store_error=None, _uc_last_error=None,
+        aget_history=history, arecall_user_memories=memory, asave_full_session=save)
+    request = ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}],
+                                   custom_inputs={'thread_id': 'thread', 'user_id': 'owner'})
+
+    async def scenario():
+        events = [event async for event in agent.apredict_stream(request)]
+        assert len(events) == 1
+        assert events[0].custom_outputs['thread_id'] == 'thread'
+
+    run(scenario())
+    assert order == ['history', 'guard', 'memory', 'agent', 'guard', 'save']
+
+
+@pytest.mark.parametrize('streaming', [False, True])
+def test_request_deadline_closes_resources_in_owner_task(streaming):
+    from contextlib import asynccontextmanager
+    calls = []
+
+    @asynccontextmanager
+    async def resource():
+        task = asyncio.current_task()
+        calls.append('open')
+        try:
+            yield
+        finally:
+            assert asyncio.current_task() is task
+            calls.append('close')
+
+    class Slow(AgentOPSBase):
+        async def _aprocess_request(self, request):
+            await self._request_resources.enter_async_context(resource())
+            await asyncio.sleep(10)
+
+        async def _aprocess_request_stream(self, request):
+            await self._aprocess_request(request)
+            yield  # Establish an async generator without producing an event.
+
+    agent = middleware_agent(Slow, {'middleware': {'timeout_seconds': 0.02}})
+    request = ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}])
+
+    async def scenario():
+        with pytest.raises(TimeoutError):
+            if streaming:
+                async for _ in agent.apredict_stream(request):
+                    pass
+            else:
+                await agent.apredict(request)
+
+    run(scenario())
+    assert calls == ['open', 'close']
+
+
+@pytest.mark.parametrize('synchronous', [False, True])
+def test_stream_close_cleans_native_resources_without_saving_partial_answer(synchronous):
+    from contextlib import asynccontextmanager
+    from mlflow.types.responses import ResponsesAgentStreamEvent
+    closed = threading.Event()
+    tasks = []
+
+    @asynccontextmanager
+    async def resource():
+        tasks.append(asyncio.current_task())
+        try:
+            yield
+        finally:
+            assert asyncio.current_task() is tasks[0]
+            closed.set()
+
+    class Native(AgentOPSBase):
+        async def _aprocess_request_stream(self, request):
+            await self._request_resources.enter_async_context(resource())
+            yield ResponsesAgentStreamEvent(type='response.output_text.delta',
+                item_id='answer', delta='partial')
+            await asyncio.sleep(10)
+
+    agent = middleware_agent(Native)
+    agent.session_store.enabled = True
+    agent.session_store.save_full_session = Mock()
+    # Client history avoids a fetch; interrupted output must still not be saved.
+    request = ResponsesAgentRequest(input=[
+        {'role': 'assistant', 'content': 'previous'},
+        {'role': 'user', 'content': 'question'}],
+        custom_inputs={'thread_id': 'thread'})
+
+    async def scenario():
+        async with aclosing(agent.apredict_stream(request)) as stream:
+            assert (await anext(stream)).delta == 'partial'
+        assert closed.is_set()
+
+    if synchronous:
+        stream = agent.predict_stream(request)
+        assert next(stream).delta == 'partial'
+        stream.close()
+        assert closed.wait(1)
+    else:
+        run(scenario())
+    agent.session_store.save_full_session.assert_not_called()
+
+
+def test_sync_stream_keeps_resource_task_and_trace_context_until_completion():
+    from contextlib import asynccontextmanager
+    from mlflow.types.responses import ResponsesAgentStreamEvent
+    marker = ContextVar('middleware-trace', default=None)
+    tasks = []
+
+    @asynccontextmanager
+    async def resource():
+        tasks.append(asyncio.current_task())
+        try:
+            yield
+        finally:
+            assert asyncio.current_task() is tasks[0]
+            assert marker.get() == 'trace'
+            tasks.append('closed')
+
+    class Native(AgentOPSBase):
+        async def _aprocess_request_stream(self, request):
+            await self._request_resources.enter_async_context(resource())
+            for value in ['one', 'two']:
+                assert asyncio.current_task() is tasks[0]
+                assert marker.get() == 'trace'
+                yield ResponsesAgentStreamEvent(type='response.output_text.delta',
+                    item_id='answer', delta=value)
+
+    agent = middleware_agent(Native)
+    marker.set('trace')
+    events = list(agent.predict_stream(ResponsesAgentRequest(
+        input=[{'role': 'user', 'content': 'question'}])))
+    assert [event.delta for event in events] == ['one', 'two']
+    assert tasks[-1] == 'closed'
+
+
+def test_native_streams_keep_concurrent_request_context_isolated():
+    from mlflow.types.responses import ResponsesAgentStreamEvent
+
+    class Native(AgentOPSBase):
+        async def _aprocess_request_stream(self, request):
+            self._request_context['marker'] = request.custom_inputs['marker']
+            await asyncio.sleep(0.01)
+            yield ResponsesAgentStreamEvent(type='response.output_item.done',
+                item=self.create_text_output_item(text=self._request_context['marker'], id='answer'))
+
+    agent = middleware_agent(Native)
+
+    async def consume(label):
+        request = ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}],
+            custom_inputs={'marker': label, 'thread_id': label})
+        events = [event async for event in agent.apredict_stream(request)]
+        assert events[0].custom_outputs['thread_id'] == label
+        return events[0].item['content'][0]['text']
+
+    async def scenario():
+        assert await asyncio.gather(consume('one'), consume('two')) == ['one', 'two']
+
+    run(scenario())
+
+
+def test_sync_stream_propagates_failure_after_resource_cleanup():
+    from contextlib import asynccontextmanager
+    closed = threading.Event()
+
+    @asynccontextmanager
+    async def resource():
+        try:
+            yield
+        finally:
+            closed.set()
+
+    class Failing(AgentOPSBase):
+        async def _aprocess_request_stream(self, request):
+            await self._request_resources.enter_async_context(resource())
+            raise ValueError('tool failed')
+            yield
+
+    agent = middleware_agent(Failing)
+    with pytest.raises(ValueError, match='tool failed'):
+        list(agent.predict_stream(ResponsesAgentRequest(
+            input=[{'role': 'user', 'content': 'question'}])))
+    assert closed.is_set()
+
+
+@pytest.mark.parametrize('seconds', [0, -1, float('inf'), float('nan')])
+def test_invalid_middleware_deadline_rejected_before_invocation(seconds):
+    class Unused(AgentOPSBase):
+        async def _aprocess_request(self, request):
+            raise AssertionError('Invalid deadline must fail before invocation')
+
+    agent = middleware_agent(Unused, {'middleware': {'timeout_seconds': seconds}})
+    with pytest.raises(ValueError, match='finite and positive'):
+        run(agent.apredict(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}])))

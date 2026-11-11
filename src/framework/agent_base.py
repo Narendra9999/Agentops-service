@@ -15,6 +15,7 @@ from typing import Generator, Optional
 import logging
 import uuid
 import time
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 
 # Public helpers remain importable here for existing team integrations.
 from framework.observability.usage_tracking import (
@@ -24,7 +25,7 @@ from framework.observability.usage_tracking import (
 )
 
 from copy import copy
-from framework.inference.async_runtime import AsyncResponsesAgent, call_async_method, run_blocking, run_sync
+from framework.inference.async_runtime import AsyncResponsesAgent, call_async_method, iterate_blocking, iterate_async_sync, request_deadline, run_blocking, run_sync
 
 from framework.guardrails.pre_llm import PreLLMGuardrails
 from framework.guardrails.post_llm import PostLLMGuardrails
@@ -204,13 +205,27 @@ class AgentOPSBase(AsyncResponsesAgent):
         """Override for native async customer agents; legacy hooks run off-loop."""
         return await run_blocking(self._process_request, request)
 
-    async def _apredict_turn(
-        self, request: ResponsesAgentRequest,
-    ) -> ResponsesAgentResponse:
+    @asynccontextmanager
+    async def _request_scope(self):
+        """Own request resources in the same task as their creation and use.
+
+        Integrations can enter async context managers through
+        ``self._request_resources.enter_async_context(...)``. Never place live
+        request-scoped sessions on the shared agent instance.
         """
-        Main prediction method with guardrail wrapping.
-        Subclasses should NOT override this — override _process_request() instead.
-        """
+        async with AsyncExitStack() as resources:
+            self._request_resources = resources
+            async with request_deadline(self.config.get("middleware", {}).get("timeout_seconds")):
+                yield
+
+    async def _apredict_turn(self, request):
+        async with self._request_scope():
+            async with aclosing(self._run_lifecycle(request, streaming=False)) as lifecycle:
+                async for result in lifecycle:
+                    return result
+
+    async def _run_lifecycle(self, request, *, streaming):
+        """One ordered middleware lifecycle for prediction and streaming."""
         start_time = time.time()
         messages = request.model_dump(exclude_none=True)["input"]
         custom_inputs = request.custom_inputs
@@ -244,7 +259,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         has_client_history = len(messages) > 1
         conversation_context = ""
         if self.session_store.enabled and thread_id and not has_client_history:
-            await run_blocking(self._load_session_history, thread_id, messages)
+            await self._aload_session_history(thread_id, messages)
             messages = self._augmented_messages
             request = ResponsesAgentRequest.model_validate({**request.model_dump(exclude_none=True), "input": messages})
             # Build context string from prior user messages for intent detection
@@ -270,10 +285,11 @@ class AgentOPSBase(AsyncResponsesAgent):
                     "agentops.guardrail.pre_llm.blocked": "true",
                     "agentops.guardrail.pre_llm.blocked_by": pre_result.get("blocked_by", "unknown"),
                 })
-                return self._build_response(
+                yield self._build_response(
                     pre_result.get("message", "Request blocked by safety filters."),
                     thread_id, user_id,
                 )
+                return
             mlflow.update_current_trace(tags={
                 "agentops.guardrail.pre_llm.blocked": "false",
                 "agentops.guardrail.pre_llm.intent": pre_result.get("checks", {}).get("intent", {}).get("intent", "unknown"),
@@ -283,14 +299,28 @@ class AgentOPSBase(AsyncResponsesAgent):
         # If user_id is provided, search Lakebase for relevant facts about this user
         # and make them available to the agent via _request_context.
         if self.session_store.memory_enabled and user_id and user_message:
-            await run_blocking(self._recall_long_term_memory, user_id, user_message)
+            await self._arecall_long_term_memory(user_id, user_message)
 
         # ── Agent Processing (subclass implements this) ──
         # _request_context is a plain dict that subclasses can populate
         # with data for post-LLM guardrails (e.g., retrieved_docs).
         self._request_context["thread_id"] = thread_id
         self._request_context["user_id"] = user_id
-        response = await self._aprocess_request(request)
+        if streaming:
+            full_output = []
+            async with aclosing(self._aprocess_request_stream(request)) as upstream:
+                async for event in upstream:
+                    if event.type == "response.output_item.done":
+                        full_output.append(event.model_dump(exclude_none=True)["item"])
+                        event = event.model_copy(update={"custom_outputs": {
+                            "thread_id": thread_id,
+                            **({"user_id": user_id} if user_id else {}),
+                            **(event.custom_outputs or {}),
+                        }})
+                    yield event
+            response = ResponsesAgentResponse(output=full_output)
+        else:
+            response = await self._aprocess_request(request)
 
         # ── Post-LLM Guardrails ──
         if self.guardrails_enabled:
@@ -301,16 +331,21 @@ class AgentOPSBase(AsyncResponsesAgent):
                     "agentops.guardrail.post_llm.blocked": "true",
                     "agentops.guardrail.post_llm.blocked_by": post_result.get("blocked_by", "unknown"),
                 })
-                return self._build_response(
-                    post_result.get("message", "Response filtered for safety."),
-                    thread_id, user_id,
-                )
-            mlflow.update_current_trace(tags={"agentops.guardrail.post_llm.blocked": "false"})
+                if not streaming:
+                    yield self._build_response(
+                        post_result.get("message", "Response filtered for safety."),
+                        thread_id, user_id,
+                    )
+                    return
+                logger.warning("Post-LLM guardrail flagged streamed response: %s", post_result.get("blocked_by"))
+            else:
+                mlflow.update_current_trace(tags={"agentops.guardrail.post_llm.blocked": "false"})
 
         # ── Tag with latency + token usage ──
         latency_ms = (time.time() - start_time) * 1000
         self._request_context["latency_ms"] = latency_ms
-        emit_standard_trace_metrics(start_time, self._request_context)
+        emit_standard_trace_metrics(start_time, self._request_context,
+            extra_tags={"agentops.streaming": "true"} if streaming else None)
 
         # ── Save session history ──
         if self.session_store.enabled:
@@ -323,7 +358,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 pass
 
             model_endpoint = getattr(self, "llm_endpoint", "")
-            await run_blocking(self.session_store.save_full_session,
+            await call_async_method(self.session_store, "asave_full_session", "save_full_session",
                 session_id=thread_id,
                 messages=messages,
                 response_text=response_text,
@@ -348,7 +383,8 @@ class AgentOPSBase(AsyncResponsesAgent):
             custom_outputs.update(response.custom_outputs)
         response.custom_outputs = custom_outputs
 
-        return response
+        if not streaming:
+            yield response
 
     @mlflow.trace(name="load_session_history", span_type="RETRIEVER")
     def _load_session_history(
@@ -359,6 +395,18 @@ class AgentOPSBase(AsyncResponsesAgent):
         Traced as a RETRIEVER span — returns a dict with diagnostic info
         so the loaded history is clearly visible in the MLflow trace output.
         """
+        prior_turns = self.session_store.get_history(thread_id, max_turns=10)
+        return self._apply_session_history(thread_id, messages, prior_turns)
+
+    async def _aload_session_history(self, thread_id, messages):
+        from inspect import iscoroutinefunction
+        method = getattr(self.session_store, "aget_history", None)
+        if iscoroutinefunction(method):
+            prior_turns = await method(thread_id, max_turns=10)
+            return self._apply_session_history(thread_id, messages, prior_turns)
+        return await run_blocking(self._load_session_history, thread_id, messages)
+
+    def _apply_session_history(self, thread_id, messages, prior_turns):
         # Surface store connection status
         store_ok = self.session_store._store is not None
         store_err = getattr(self.session_store, '_store_error', None)
@@ -370,7 +418,6 @@ class AgentOPSBase(AsyncResponsesAgent):
                 "agentops.session.store_error": store_err[:200],
             })
 
-        prior_turns = self.session_store.get_history(thread_id, max_turns=10)
         if prior_turns:
             history_msgs = list(prior_turns)
             self._augmented_messages = history_msgs + list(messages)
@@ -408,6 +455,17 @@ class AgentOPSBase(AsyncResponsesAgent):
         so recalled memories are clearly visible in the MLflow trace output.
         """
         memories = self.session_store.recall_user_memories(user_id, query)
+        return self._apply_recalled_memory(user_id, query, memories)
+
+    async def _arecall_long_term_memory(self, user_id, query):
+        from inspect import iscoroutinefunction
+        method = getattr(self.session_store, "arecall_user_memories", None)
+        if iscoroutinefunction(method):
+            memories = await method(user_id, query)
+            return self._apply_recalled_memory(user_id, query, memories)
+        return await run_blocking(self._recall_long_term_memory, user_id, query)
+
+    def _apply_recalled_memory(self, user_id, query, memories):
         if memories:
             self._request_context["user_memories"] = memories
             mlflow.update_current_trace(tags={
@@ -444,139 +502,38 @@ class AgentOPSBase(AsyncResponsesAgent):
         """Override this to emit Responses deltas and completed output items."""
         raise NotImplementedError("Subclasses must implement _process_request_stream for streaming")
 
+    async def _aprocess_request_stream(self, request):
+        """Native async integrations override this hook; legacy streams run off-loop."""
+        async with aclosing(iterate_blocking(self._process_request_stream, request)) as upstream:
+            async for event in upstream:
+                yield event
+
+    async def _astream_turn(self, request):
+        native_stream = (
+            type(self)._aprocess_request_stream is not AgentOPSBase._aprocess_request_stream
+            or type(self)._process_request_stream is not AgentOPSBase._process_request_stream
+        )
+        async with self._request_scope():
+            async with aclosing(self._run_lifecycle(request, streaming=native_stream)) as lifecycle:
+                async for result in lifecycle:
+                    if isinstance(result, ResponsesAgentResponse):
+                        for item in result.output:
+                            yield ResponsesAgentStreamEvent(
+                                type="response.output_item.done",
+                                item=item.model_dump(exclude_none=True),
+                                custom_outputs=result.custom_outputs,
+                            )
+                    else:
+                        yield result
+
+    async def apredict_stream(self, request):
+        turn = self._async_request_agent()
+        async with aclosing(turn._astream_turn(request)) as stream:
+            async for event in stream:
+                yield event
+
     def predict_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        if type(self)._process_request_stream is AgentOPSBase._process_request_stream:
-            response = self.predict(request)
-            for item in response.output:
-                yield ResponsesAgentStreamEvent(
-                    type="response.output_item.done", item=item.model_dump(exclude_none=True),
-                    custom_outputs=response.custom_outputs,
-                )
-            return
-
-        """
-        Streaming prediction — same pre/post processing as predict(),
-        but yields chunks as the LLM generates tokens.
-
-        Pre-processing (history, guardrails, memory) runs fully before streaming.
-        Post-processing (guardrails, save history) runs after streaming completes.
-        """
-        start_time = time.time()
-        messages = request.model_dump(exclude_none=True)["input"]
-        custom_inputs = request.custom_inputs
-        user_message = extract_request_text(request)
-        self._request_context = {}
-
-        # Extract thread_id, user_id
-        request_tags = {}
-        thread_id = ""
-        user_id = ""
-        if custom_inputs and isinstance(custom_inputs, dict):
-            request_tags = custom_inputs.get("tags", {})
-            thread_id = custom_inputs.get("thread_id", custom_inputs.get("session_id", ""))
-            user_id = custom_inputs.get("user_id", "")
-        if not thread_id:
-            thread_id = str(uuid.uuid4())
-        self._set_trace_tags(request_tags)
-
-        # ── Load session history ──
-        self._request_context["thread_id"] = thread_id
-        self._request_context["user_id"] = user_id
-        has_client_history = len(messages) > 1
-        conversation_context = ""
-        if self.session_store.enabled and thread_id and not has_client_history:
-            self._load_session_history(thread_id, messages)
-            messages = self._augmented_messages
-            request = ResponsesAgentRequest.model_validate({**request.model_dump(exclude_none=True), "input": messages})
-            if len(messages) > 1:
-                conversation_context = " ".join(
-                    extract_request_text({"input": [message]})
-                    for message in messages[:-1] if message.get("role") == "user"
-                )
-
-        # ── Pre-LLM Guardrails ──
-        if self.guardrails_enabled:
-            pre_result = self.pre_llm_guardrails.check(
-                user_message, conversation_context=conversation_context)
-            if pre_result.get("blocked"):
-                mlflow.update_current_trace(tags={
-                    "agentops.guardrail.pre_llm.blocked": "true",
-                    "agentops.guardrail.pre_llm.blocked_by": pre_result.get("blocked_by", "unknown"),
-                    "agentops.streaming": "true",
-                })
-                yield ResponsesAgentStreamEvent(
-                    type="response.output_item.done",
-                    item=self.create_text_output_item(
-                        text=pre_result.get("message", "Request blocked."), id=str(uuid.uuid4()),
-                    ),
-                    custom_outputs={"thread_id": thread_id, **({"user_id": user_id} if user_id else {})},
-                )
-                return
-            mlflow.update_current_trace(tags={
-                "agentops.guardrail.pre_llm.blocked": "false",
-                "agentops.guardrail.pre_llm.intent": pre_result.get("checks", {}).get("intent", {}).get("intent", "unknown"),
-            })
-
-        # ── Recall long-term memory ──
-        if self.session_store.memory_enabled and user_id and user_message:
-            self._recall_long_term_memory(user_id, user_message)
-
-        # ── Stream agent response ──
-        self._request_context["thread_id"] = thread_id
-        self._request_context["user_id"] = user_id
-        full_output = []
-
-        for event in self._process_request_stream(request):
-            if event.type == "response.output_item.done":
-                full_output.append(event.model_dump(exclude_none=True)["item"])
-                event = event.model_copy(update={"custom_outputs": {
-                    "thread_id": thread_id, **({"user_id": user_id} if user_id else {}),
-                    **(event.custom_outputs or {}),
-                }})
-            yield event
-
-        response_text = extract_response_text({"output": full_output})
-
-        # ── Post-LLM Guardrails ──
-        # Runs after full response is assembled. Can't un-stream tokens already
-        # sent, but tags the trace for monitoring/alerting and logs the violation.
-        if self.guardrails_enabled:
-            post_result = self.post_llm_guardrails.check(
-                user_message, response_text, self._request_context)
-            if post_result.get("blocked"):
-                mlflow.update_current_trace(tags={
-                    "agentops.guardrail.post_llm.blocked": "true",
-                    "agentops.guardrail.post_llm.blocked_by": post_result.get("blocked_by", "unknown"),
-                })
-                logger.warning(f"Post-LLM guardrail blocked streamed response: {post_result.get('blocked_by')}")
-            else:
-                mlflow.update_current_trace(tags={"agentops.guardrail.post_llm.blocked": "false"})
-
-        # ── Save session history ──
-        latency_ms = (time.time() - start_time) * 1000
-        if self.session_store.enabled:
-            trace_id = ""
-            try:
-                trace = mlflow.get_current_active_span()
-                trace_id = trace.request_id if trace else ""
-            except Exception:
-                pass
-            model_endpoint = getattr(self, "llm_endpoint", "")
-            self.session_store.save_full_session(
-                session_id=thread_id,
-                messages=messages,
-                response_text=response_text,
-                response_items=full_output,
-                response_time_ms=latency_ms,
-                model_endpoint=model_endpoint,
-                trace_id=trace_id,
-            )
-
-        self._request_context["latency_ms"] = latency_ms
-        emit_standard_trace_metrics(
-            start_time,
-            self._request_context,
-            extra_tags={"agentops.streaming": "true"},
-        )
+        """Thin synchronous MLflow adapter over the shared async middleware."""
+        yield from iterate_async_sync(lambda: self._astream_turn(request))

@@ -5,7 +5,7 @@ A stream is consumed by one worker so generator-owned trace contexts are never
 entered and exited on different threads. Buffering is bounded to one event.
 """
 import asyncio
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
 from functools import partial
 from queue import Empty, Full, Queue
 from threading import Event
@@ -121,3 +121,82 @@ class AsyncResponsesAgent(ResponsesAgent):
         async with aclosing(iterate_blocking(self._async_request_agent().predict_stream, request)) as stream:
             async for event in stream:
                 yield event
+
+
+@asynccontextmanager
+async def request_deadline(seconds=None):
+    """Server-configured whole-request deadline; clients cannot extend it."""
+    if seconds is None:
+        yield
+        return
+    import math
+    seconds = float(seconds)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError('middleware.timeout_seconds must be finite and positive')
+    async with asyncio.timeout(seconds):
+        yield
+
+
+def iterate_async_sync(factory):
+    """Consume an async stream from MLflow without buffering the whole response.
+
+    A single producer task owns the async generator and its resource scopes.
+    Closing the synchronous iterator cancels that task on its owning loop.
+    """
+    from contextvars import copy_context
+    from threading import Thread
+    queue = Queue(maxsize=1)
+    stopped = Event()
+    owner = {}
+
+    def send(kind, value):
+        while not stopped.is_set():
+            try:
+                queue.put((kind, value), timeout=0.05)
+                return
+            except Full:
+                pass
+
+    async def produce():
+        owner['loop'] = asyncio.get_running_loop()
+        owner['task'] = asyncio.current_task()
+        try:
+            async with aclosing(factory()) as upstream:
+                async for item in upstream:
+                    if stopped.is_set():
+                        break
+                    await run_blocking(send, 'item', item)
+        except BaseException as exc:
+            if not stopped.is_set():
+                await run_blocking(send, 'error', exc)
+        finally:
+            await run_blocking(send, 'done', None)
+
+    context = copy_context()
+    def run_owner():
+        try:
+            context.run(asyncio.run, produce())
+        except asyncio.CancelledError:
+            pass  # Consumer closed the stream; resource scopes have unwound.
+
+    thread = Thread(target=run_owner, daemon=True)
+    thread.start()
+    completed = False
+    try:
+        while True:
+            kind, value = queue.get()
+            if kind == 'done':
+                completed = True
+                return
+            if kind == 'error':
+                raise value
+            yield value
+    finally:
+        stopped.set()
+        loop, task = owner.get('loop'), owner.get('task')
+        if not completed and loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(task.cancel)
+            except RuntimeError:
+                pass  # Owner finished between the check and notification.
+        thread.join(timeout=1)

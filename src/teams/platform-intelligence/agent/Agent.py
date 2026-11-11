@@ -8,7 +8,6 @@ from pathlib import Path
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from framework.agent_base import AgentOPSBase
-from framework.inference.async_runtime import AsyncResponsesAgent
 from fe_multi_agent.supervisor_agent import SupervisorAgent, stream_prediction
 from fe_multi_agent.config import Settings
 
@@ -34,7 +33,7 @@ class _GuardedTurn(AgentOPSBase):
         return response
 
 
-class ChatModel(AsyncResponsesAgent):
+class ChatModel(ResponsesAgent):
     def load_context(self, context):
         self.config = deepcopy(context.model_config or {})
         block = self.config.get('multi_agent') or {}
