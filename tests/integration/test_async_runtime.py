@@ -97,11 +97,11 @@ def test_base_concurrent_turns_isolate_request_context(monkeypatch, wrapped):
     barrier = threading.Barrier(2)
 
     class Echo(AgentOPSBase):
-        def _process_request(self, request):
-            self._request_context['marker'] = request.custom_inputs['marker']
+        def _process_request(self, request, context):
+            context.state['marker'] = request.custom_inputs['marker']
             barrier.wait(timeout=2)
             return ResponsesAgentResponse(output=[self.create_text_output_item(
-                text=self._request_context['marker'], id='answer')])
+                text=context.state['marker'], id='answer')])
 
     monkeypatch.setattr('framework.agent_base.SessionStore', Mock())
     agent = Echo({'guardrails': {'enabled': False}})
@@ -191,12 +191,12 @@ def test_native_async_guardrails_and_agent_hook_are_awaited(monkeypatch):
             raise AssertionError('Native async guardrail must be awaited')
 
     class Native(AgentOPSBase):
-        async def _aprocess_request(self, request):
+        async def _aprocess_request(self, request, context):
             order.append('agent')
             await asyncio.sleep(0)
             return ResponsesAgentResponse(output=[self.create_text_output_item(text='answer', id='answer')])
 
-        def _process_request(self, request):
+        def _process_request(self, request, context):
             raise AssertionError('Native async agent must be awaited')
 
     agent = Native({'session_history': {'enabled': False}, 'guardrails': {'enabled': True}})
@@ -217,16 +217,16 @@ def test_history_recall_and_persistence_run_off_loop_in_order():
     order = []
 
     class Agent(AgentOPSBase):
-        def _load_session_history(self, thread_id, messages):
+        def _load_session_history(self, thread_id, messages, *, context):
             assert threading.get_ident() != owner_thread
             order.append('history')
-            self._augmented_messages = messages
+            context["messages"] = messages
 
-        def _recall_long_term_memory(self, user_id, query):
+        def _recall_long_term_memory(self, user_id, query, *, context):
             assert threading.get_ident() != owner_thread
             order.append('memory')
 
-        async def _aprocess_request(self, request):
+        async def _aprocess_request(self, request, context):
             order.append('agent')
             return ResponsesAgentResponse(output=[self.create_text_output_item(text='answer', id='answer')])
 
@@ -262,9 +262,9 @@ def test_shared_stream_lifecycle_awaits_guards_and_native_storage():
             return {'blocked': False}
 
     class Native(AgentOPSBase):
-        async def _aprocess_request_stream(self, request):
+        async def _aprocess_request_stream(self, request, context):
             order.append('agent')
-            assert self._request_context['user_memories'] == ['pattern']
+            assert context.state['user_memories'] == ['pattern']
             yield ResponsesAgentStreamEvent(type='response.output_item.done',
                 item=self.create_text_output_item(text='answer', id='answer'))
 
@@ -315,12 +315,12 @@ def test_request_deadline_closes_resources_in_owner_task(streaming):
             calls.append('close')
 
     class Slow(AgentOPSBase):
-        async def _aprocess_request(self, request):
-            await self._request_resources.enter_async_context(resource())
+        async def _aprocess_request(self, request, context):
+            await context.resources.enter_async_context(resource())
             await asyncio.sleep(10)
 
-        async def _aprocess_request_stream(self, request):
-            await self._aprocess_request(request)
+        async def _aprocess_request_stream(self, request, context):
+            await self._aprocess_request(request, context)
             yield  # Establish an async generator without producing an event.
 
     agent = middleware_agent(Slow, {'middleware': {'timeout_seconds': 0.02}})
@@ -355,8 +355,8 @@ def test_stream_close_cleans_native_resources_without_saving_partial_answer(sync
             closed.set()
 
     class Native(AgentOPSBase):
-        async def _aprocess_request_stream(self, request):
-            await self._request_resources.enter_async_context(resource())
+        async def _aprocess_request_stream(self, request, context):
+            await context.resources.enter_async_context(resource())
             yield ResponsesAgentStreamEvent(type='response.output_text.delta',
                 item_id='answer', delta='partial')
             await asyncio.sleep(10)
@@ -402,8 +402,8 @@ def test_sync_stream_keeps_resource_task_and_trace_context_until_completion():
             tasks.append('closed')
 
     class Native(AgentOPSBase):
-        async def _aprocess_request_stream(self, request):
-            await self._request_resources.enter_async_context(resource())
+        async def _aprocess_request_stream(self, request, context):
+            await context.resources.enter_async_context(resource())
             for value in ['one', 'two']:
                 assert asyncio.current_task() is tasks[0]
                 assert marker.get() == 'trace'
@@ -422,11 +422,11 @@ def test_native_streams_keep_concurrent_request_context_isolated():
     from mlflow.types.responses import ResponsesAgentStreamEvent
 
     class Native(AgentOPSBase):
-        async def _aprocess_request_stream(self, request):
-            self._request_context['marker'] = request.custom_inputs['marker']
+        async def _aprocess_request_stream(self, request, context):
+            context.state['marker'] = request.custom_inputs['marker']
             await asyncio.sleep(0.01)
             yield ResponsesAgentStreamEvent(type='response.output_item.done',
-                item=self.create_text_output_item(text=self._request_context['marker'], id='answer'))
+                item=self.create_text_output_item(text=context.state['marker'], id='answer'))
 
     agent = middleware_agent(Native)
 
@@ -455,8 +455,8 @@ def test_sync_stream_propagates_failure_after_resource_cleanup():
             closed.set()
 
     class Failing(AgentOPSBase):
-        async def _aprocess_request_stream(self, request):
-            await self._request_resources.enter_async_context(resource())
+        async def _aprocess_request_stream(self, request, context):
+            await context.resources.enter_async_context(resource())
             raise ValueError('tool failed')
             yield
 
@@ -470,7 +470,7 @@ def test_sync_stream_propagates_failure_after_resource_cleanup():
 @pytest.mark.parametrize('seconds', [0, -1, float('inf'), float('nan')])
 def test_invalid_middleware_deadline_rejected_before_invocation(seconds):
     class Unused(AgentOPSBase):
-        async def _aprocess_request(self, request):
+        async def _aprocess_request(self, request, context):
             raise AssertionError('Invalid deadline must fail before invocation')
 
     agent = middleware_agent(Unused, {'middleware': {'timeout_seconds': seconds}})

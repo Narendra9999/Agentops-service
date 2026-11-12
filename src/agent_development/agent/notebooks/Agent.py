@@ -138,11 +138,11 @@ class DatabricksDocsAgent(AgentOPSBase):
 
     @mlflow.trace(span_type="CHAIN")
     def _process_request(
-        self, request: ResponsesAgentRequest,
+        self, request: ResponsesAgentRequest, context,
     ) -> ResponsesAgentResponse:
-        augmented_request, retrieved_docs = self._build_augmented_request(request)
-        self._request_context["retrieved_docs"] = retrieved_docs
-        return self._call_llm(augmented_request)
+        augmented_request, retrieved_docs = self._build_augmented_request(request, context)
+        context.state["retrieved_docs"] = retrieved_docs
+        return self._call_llm(augmented_request, context)
 
     @mlflow.trace(span_type="TOOL", name="execute_tools")
     def _execute_tools(self, user_message: str) -> str:
@@ -258,7 +258,7 @@ class DatabricksDocsAgent(AgentOPSBase):
             return "Tool Results:\n" + "\n".join(tool_results)
         return ""
 
-    def _build_augmented_request(self, request: ResponsesAgentRequest):
+    def _build_augmented_request(self, request: ResponsesAgentRequest, context):
         """Build a native Responses request with retrieval and tool context."""
         messages = request.model_dump(exclude_none=True)["input"]
         recent_user_msgs = [
@@ -280,7 +280,7 @@ class DatabricksDocsAgent(AgentOPSBase):
         if tool_context:
             augmented_messages.append({"role": "system", "content": tool_context})
 
-        user_memories = self._request_context.get("user_memories", [])
+        user_memories = context.state.get("user_memories", [])
         if user_memories:
             memory_lines = [f"  [{m['key']}]: {m['content']}" for m in user_memories]
             memory_text = "User context from prior sessions:\n" + "\n".join(memory_lines)
@@ -299,12 +299,12 @@ class DatabricksDocsAgent(AgentOPSBase):
 
     @mlflow.trace(span_type="CHAIN")
     def _process_request_stream(
-        self, request: ResponsesAgentRequest,
+        self, request: ResponsesAgentRequest, context,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Yield native Responses deltas and completed output items."""
-        augmented_request, retrieved_docs = self._build_augmented_request(request)
-        self._request_context["retrieved_docs"] = retrieved_docs
-        yield from self._call_llm_stream(augmented_request)
+        augmented_request, retrieved_docs = self._build_augmented_request(request, context)
+        context.state["retrieved_docs"] = retrieved_docs
+        yield from self._call_llm_stream(augmented_request, context)
 
 
 # MLflow ResponsesAgent entry point

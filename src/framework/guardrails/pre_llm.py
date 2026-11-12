@@ -58,10 +58,8 @@ class PreLLMGuardrails:
 
     async def acheck(self, user_message, conversation_context=""):
         """Awaitable check boundary; remote integrations may override natively."""
-        from copy import copy
         from framework.inference.async_runtime import run_blocking
-        # check() stores conversation context; never share it across requests.
-        return await run_blocking(copy(self).check, user_message, conversation_context)
+        return await run_blocking(self.check, user_message, conversation_context)
 
     @mlflow.trace(span_type="GUARDRAIL", name="pre_llm_check")
     def check(self, user_message: str, conversation_context: str = "") -> dict:
@@ -72,7 +70,6 @@ class PreLLMGuardrails:
                 Used by the intent check to understand context for follow-up
                 messages that may lack Databricks keywords on their own.
         """
-        self._conversation_context = conversation_context
         results = {"blocked": False, "checks": {}}
 
         for check_name in self.enabled_checks:

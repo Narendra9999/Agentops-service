@@ -1,6 +1,6 @@
 """
 AgentOPS Framework — Base Agent Class
-All agents must extend this. Provides standardized guardrails,
+Context-aware agent hooks and shared callback lifecycle. Provides standardized guardrails,
 MLflow tracing with tags, session history, and long-term user memory.
 """
 
@@ -26,8 +26,9 @@ from framework.observability.usage_tracking import (
     record_response_usage,
 )
 
-from copy import copy
 from framework.inference.async_runtime import AsyncResponsesAgent, call_async_method, iterate_blocking, iterate_async_sync, request_deadline, run_blocking, run_sync
+
+from framework.inference.request_context import RequestContext
 
 from framework.guardrails.pre_llm import PreLLMGuardrails
 from framework.guardrails.post_llm import PostLLMGuardrails
@@ -46,7 +47,7 @@ class AgentOPSBase(AsyncResponsesAgent):
 
     Memory support (via Lakebase DatabricksStore):
       - Short-term: per-thread conversation history (auto-loaded/saved)
-      - Long-term: cross-session user memory recalled into _request_context["user_memories"]
+      - Long-term: cross-session user memory recalled into RequestContext.state["user_memories"]
 
     Clients pass thread_id and user_id via custom_inputs:
       {"thread_id": "abc-123", "user_id": "user@example.com"}
@@ -81,13 +82,6 @@ class AgentOPSBase(AsyncResponsesAgent):
             "agentops.environment": environment,
             **tracing_config.get("default_tags", {}),
         }
-
-    def _async_request_agent(self):
-        # The legacy lifecycle assigns request context on self. Clone the turn
-        # so concurrent async requests cannot overwrite each other's state.
-        turn = copy(self)
-        turn._request_context = {}
-        return turn
 
     @staticmethod
     def _resolve_environment(tracing_config: dict) -> str:
@@ -157,7 +151,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         return f"/{api}"
 
     @mlflow.trace(name="agentops.model.responses", span_type="LLM")
-    def _call_llm(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+    def _call_llm(self, request: ResponsesAgentRequest, context: RequestContext) -> ResponsesAgentResponse:
         """Call the Responses API without converting native output items."""
         from databricks.sdk import WorkspaceClient
         from openai.types.responses import Response
@@ -168,13 +162,13 @@ class AgentOPSBase(AsyncResponsesAgent):
         )
         if response.error:
             raise RuntimeError(f"Responses API failed: {response.error.message}")
-        record_response_usage(response, self._request_context, self.llm_endpoint,
+        record_response_usage(response, context.state, self.llm_endpoint,
                               span=mlflow.get_current_active_span())
         return ResponsesAgentResponse(output=[item.model_dump(exclude_none=True) for item in response.output])
 
     @mlflow.trace(name="agentops.model.responses.stream", span_type="LLM")
     def _call_llm_stream(
-        self, request: ResponsesAgentRequest,
+        self, request: ResponsesAgentRequest, context: RequestContext,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Emit serving-compatible output events and capture provider usage."""
         from databricks.sdk import WorkspaceClient
@@ -193,7 +187,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 if event.type in {"error", "response.failed", "response.incomplete"}:
                     raise RuntimeError(f"Responses stream failed: {event.model_dump(exclude_none=True)}")
                 if event.type == "response.completed":
-                    record_response_usage(event.response, self._request_context, self.llm_endpoint,
+                    record_response_usage(event.response, context.state, self.llm_endpoint,
                                           span=mlflow.get_current_active_span())
                     completed = True
                 # Playground accepts output events, not provider lifecycle envelopes.
@@ -207,44 +201,52 @@ class AgentOPSBase(AsyncResponsesAgent):
             raise RuntimeError("Responses stream ended without a response.completed event.")
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        """Synchronous MLflow contract over the shared async request lifecycle."""
-        # Direct synchronous callers retain the historical request context.
-        return run_sync(self._apredict_turn(request))
+        """Synchronous MLflow boundary over the same callback lifecycle."""
+        return run_sync(self.apredict(request))
 
     async def apredict(self, request):
-        turn = self._async_request_agent()
-        return await turn._apredict_turn(request)
+        return await self.execute(request, invoke=self._aprocess_request)
 
-    async def _aprocess_request(self, request):
-        """Override for native async customer agents; legacy hooks run off-loop."""
-        return await run_blocking(self._process_request, request)
+    async def _aprocess_request(self, request, context):
+        """Override for native async hooks; synchronous hooks run off-loop."""
+        return await run_blocking(self._process_request, request, context)
 
     @asynccontextmanager
-    async def _request_scope(self):
-        """Own request resources in the same task as their creation and use.
+    async def _callback_lifecycle(self, request, *, context, invoke, stream=None):
+        async def normalized_invoke(prepared):
+            from framework.inference.agent_middleware import wrap_target_result
+            return wrap_target_result(await invoke(prepared, context))
 
-        Integrations can enter async context managers through
-        ``self._request_resources.enter_async_context(...)``. Never place live
-        request-scoped sessions on the shared agent instance.
-        """
-        async with AsyncExitStack() as resources:
-            self._request_resources = resources
-            async with request_deadline(self.config.get("middleware", {}).get("timeout_seconds")):
-                yield
+        # The only scope is resource/deadline ownership, never an agent clone.
+        async with context.scope(self.config.get('middleware', {}).get('timeout_seconds')):
+            async with aclosing(self._run_lifecycle(request, streaming=stream is not None,
+                context=context.state, invoke=normalized_invoke,
+                stream=(lambda req: stream(req, context)) if stream is not None else None)) as lifecycle:
+                yield lifecycle
 
-    async def _apredict_turn(self, request):
-        async with self._request_scope():
-            async with aclosing(self._run_lifecycle(request, streaming=False)) as lifecycle:
-                async for result in lifecycle:
-                    return result
+    async def execute(self, request, *, invoke, context=None):
+        """Run one prediction callback inside the shared middleware lifecycle."""
+        context = context if context is not None else RequestContext()
+        async with self._callback_lifecycle(request, context=context, invoke=invoke) as lifecycle:
+            async for result in lifecycle:
+                return result
 
-    async def _run_lifecycle(self, request, *, streaming):
+    async def execute_stream(self, request, *, invoke, stream=None, context=None):
+        """Use a stream callback or one prediction fallback, with the same checks."""
+        context = context if context is not None else RequestContext()
+        async with self._callback_lifecycle(request, context=context, invoke=invoke, stream=stream) as lifecycle:
+            async for result in lifecycle:
+                for event in self._stream_events(result):
+                    yield event
+
+    async def _run_lifecycle(self, request, *, streaming, context, invoke, stream=None):
         """One ordered middleware lifecycle for prediction and streaming."""
         start_time = time.time()
         messages = request.model_dump(exclude_none=True)["input"]
         custom_inputs = request.custom_inputs
         user_message = extract_request_text(request)
-        self._request_context = {}
+        state = context
+        context_args = {"context": state}
 
         # Extract per-request tags, thread_id, and user_id
         request_tags = {}
@@ -272,8 +274,8 @@ class AgentOPSBase(AsyncResponsesAgent):
         # because they lack Databricks keywords on their own.
         has_client_history = len(messages) > 1
         if self.session_store.enabled and thread_id and not has_client_history:
-            await self._aload_session_history(thread_id, messages)
-            messages = self._augmented_messages
+            await self._aload_session_history(thread_id, messages, **context_args)
+            messages = state["messages"]
             request = ResponsesAgentRequest.model_validate({**request.model_dump(exclude_none=True), "input": messages})
         elif has_client_history:
             mlflow.update_current_trace(tags={
@@ -303,7 +305,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 })
                 yield self._build_response(
                     pre_result.get("message", "Request blocked by safety filters."),
-                    thread_id, user_id,
+                    thread_id, user_id, **context_args,
                 )
                 return
             mlflow.update_current_trace(tags={
@@ -313,20 +315,19 @@ class AgentOPSBase(AsyncResponsesAgent):
 
         # ── Recall long-term user memories ──
         # If user_id is provided, search Lakebase for relevant facts about this user
-        # and make them available to the agent via _request_context.
+        # and pass them to the agent in explicit request state.
         if self.session_store.memory_enabled and user_id and user_message:
-            await self._arecall_long_term_memory(user_id, user_message)
+            await self._arecall_long_term_memory(user_id, user_message, **context_args)
 
         # ── Agent Processing (subclass implements this) ──
-        # _request_context is a plain dict that subclasses can populate
-        # with data for post-LLM guardrails (e.g., retrieved_docs).
-        self._request_context["thread_id"] = thread_id
-        self._request_context["user_id"] = user_id
+        # Callbacks can populate context.state for shared postchecks.
+        state["thread_id"] = thread_id
+        state["user_id"] = user_id
         if streaming:
             full_output = []
             stream_custom = {}
             stream_usage = None
-            async with aclosing(self._aprocess_request_stream(request)) as upstream:
+            async with aclosing(stream(request)) as upstream:
                 async for event in upstream:
                     payload = event.model_dump(exclude_none=True)
                     if event.type in {"error", "response.failed", "response.incomplete"}:
@@ -347,7 +348,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                     if event.type == "response.output_item.done":
                         full_output.append(event.model_dump(exclude_none=True)["item"])
                         event = event.model_copy(update={"custom_outputs": {
-                            **self._session_outputs(thread_id, user_id),
+                            **self._session_outputs(thread_id, user_id, **context_args),
                             **(event.custom_outputs or {}),
                         }})
                     if not self._buffers_stream_output():
@@ -355,7 +356,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             response = ResponsesAgentResponse(output=full_output, custom_outputs=stream_custom,
                 **({"usage": stream_usage} if stream_usage is not None else {}))
         else:
-            response = await self._aprocess_request(request)
+            response = await invoke(request)
 
         # ── Post-LLM Guardrails ──
         if self.guardrails_enabled:
@@ -365,7 +366,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             # boundary as answer text, independent of which target produced them.
             artifact = (response.custom_outputs or {}).get("genie_result")
             checked_text = response_text + ("\n" + json.dumps(artifact, default=str) if artifact else "")
-            post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, checked_text, self._request_context)
+            post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, checked_text, state)
             if post_result.get("blocked"):
                 mlflow.update_current_trace(tags={
                     "agentops.guardrail.post_llm.blocked": "true",
@@ -374,7 +375,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 if not streaming or self._buffers_stream_output():
                     yield self._build_response(
                         post_result.get("message", "Response filtered for safety."),
-                        thread_id, user_id,
+                        thread_id, user_id, **context_args,
                     )
                     return
                 logger.warning("Post-LLM guardrail flagged streamed response: %s", post_result.get("blocked_by"))
@@ -383,8 +384,8 @@ class AgentOPSBase(AsyncResponsesAgent):
 
         # ── Tag with latency + token usage ──
         latency_ms = (time.time() - start_time) * 1000
-        self._request_context["latency_ms"] = latency_ms
-        self._request_context["trace_tags"] = emit_standard_trace_metrics(start_time, self._request_context,
+        state["latency_ms"] = latency_ms
+        state["trace_tags"] = emit_standard_trace_metrics(start_time, state,
             extra_tags={"agentops.streaming": "true"} if streaming else None)
 
         # ── Save session history ──
@@ -409,7 +410,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             )
 
         # ── Add custom_outputs (thread_id for follow-up requests) ──
-        custom_outputs = self._session_outputs(thread_id, user_id)
+        custom_outputs = self._session_outputs(thread_id, user_id, **context_args)
         # Diagnostic: surface store status for debugging (prefix with _ to avoid conflicts)
         store_err = getattr(self.session_store, '_store_error', None)
         if store_err:
@@ -429,7 +430,7 @@ class AgentOPSBase(AsyncResponsesAgent):
 
     @mlflow.trace(name="load_session_history", span_type="RETRIEVER")
     def _load_session_history(
-        self, thread_id: str, messages: list[dict]
+        self, thread_id: str, messages: list[dict], *, context
     ) -> dict:
         """Load conversation history from Lakebase and prepend to messages.
 
@@ -437,17 +438,18 @@ class AgentOPSBase(AsyncResponsesAgent):
         so the loaded history is clearly visible in the MLflow trace output.
         """
         prior_turns = self.session_store.get_history(thread_id, max_turns=10)
-        return self._apply_session_history(thread_id, messages, prior_turns)
+        return self._apply_session_history(thread_id, messages, prior_turns, context=context)
 
-    async def _aload_session_history(self, thread_id, messages):
+    async def _aload_session_history(self, thread_id, messages, *, context):
         from inspect import iscoroutinefunction
         method = getattr(self.session_store, "aget_history", None)
         if iscoroutinefunction(method):
             prior_turns = await method(thread_id, max_turns=10)
-            return self._apply_session_history(thread_id, messages, prior_turns)
-        return await run_blocking(self._load_session_history, thread_id, messages)
+            return self._apply_session_history(thread_id, messages, prior_turns, context=context)
+        return await run_blocking(self._load_session_history, thread_id, messages,
+            context=context)
 
-    def _apply_session_history(self, thread_id, messages, prior_turns):
+    def _apply_session_history(self, thread_id, messages, prior_turns, *, context):
         # Surface store connection status
         store_ok = self.session_store._store is not None
         store_err = getattr(self.session_store, '_store_error', None)
@@ -461,7 +463,7 @@ class AgentOPSBase(AsyncResponsesAgent):
 
         if prior_turns:
             history_msgs = list(prior_turns)
-            self._augmented_messages = history_msgs + list(messages)
+            context["messages"] = history_msgs + list(messages)
             mlflow.update_current_trace(tags={
                 "agentops.session.history_turns": str(len(prior_turns)),
                 "agentops.session.source": "server_store",
@@ -476,7 +478,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 ],
             }
         else:
-            self._augmented_messages = list(messages)
+            context["messages"] = list(messages)
             mlflow.update_current_trace(tags={
                 "agentops.session.history_turns": "0",
                 "agentops.session.source": "server_store",
@@ -489,26 +491,27 @@ class AgentOPSBase(AsyncResponsesAgent):
             }
 
     @mlflow.trace(name="recall_user_memory", span_type="RETRIEVER")
-    def _recall_long_term_memory(self, user_id: str, query: str) -> dict:
+    def _recall_long_term_memory(self, user_id: str, query: str, *, context) -> dict:
         """Search long-term user memory in Lakebase.
 
         Traced as a RETRIEVER span — returns a dict with diagnostic info
         so recalled memories are clearly visible in the MLflow trace output.
         """
         memories = self.session_store.recall_user_memories(user_id, query)
-        return self._apply_recalled_memory(user_id, query, memories)
+        return self._apply_recalled_memory(user_id, query, memories, context=context)
 
-    async def _arecall_long_term_memory(self, user_id, query):
+    async def _arecall_long_term_memory(self, user_id, query, *, context):
         from inspect import iscoroutinefunction
         method = getattr(self.session_store, "arecall_user_memories", None)
         if iscoroutinefunction(method):
             memories = await method(user_id, query)
-            return self._apply_recalled_memory(user_id, query, memories)
-        return await run_blocking(self._recall_long_term_memory, user_id, query)
+            return self._apply_recalled_memory(user_id, query, memories, context=context)
+        return await run_blocking(self._recall_long_term_memory, user_id, query,
+            context=context)
 
-    def _apply_recalled_memory(self, user_id, query, memories):
+    def _apply_recalled_memory(self, user_id, query, memories, *, context):
         if memories:
-            self._request_context["user_memories"] = memories
+            context["user_memories"] = memories
             mlflow.update_current_trace(tags={
                 "agentops.memory.recalled_count": str(len(memories)),
             })
@@ -520,21 +523,21 @@ class AgentOPSBase(AsyncResponsesAgent):
         }
 
     @staticmethod
-    def _session_outputs(thread_id, user_id=""):
+    def _session_outputs(thread_id, user_id="", *, context):
         return {"thread_id": thread_id, **({"user_id": user_id} if user_id else {})}
 
     def _build_response(
-        self, content: str, thread_id: str, user_id: str = ""
+        self, content: str, thread_id: str, user_id: str = "", *, context
     ) -> ResponsesAgentResponse:
         """Build a ResponsesAgentResponse with standard custom_outputs."""
-        custom_outputs = self._session_outputs(thread_id, user_id)
+        custom_outputs = self._session_outputs(thread_id, user_id, context=context)
         return ResponsesAgentResponse(
             output=[self.create_text_output_item(text=content, id=str(uuid.uuid4()))],
             custom_outputs=custom_outputs,
         )
 
     def _process_request(
-        self, request: ResponsesAgentRequest,
+        self, request: ResponsesAgentRequest, context: RequestContext,
     ) -> ResponsesAgentResponse:
         """Override this in your agent subclass."""
         raise NotImplementedError("Subclasses must implement _process_request")
@@ -545,9 +548,9 @@ class AgentOPSBase(AsyncResponsesAgent):
         """Override this to emit Responses deltas and completed output items."""
         raise NotImplementedError("Subclasses must implement _process_request_stream for streaming")
 
-    async def _aprocess_request_stream(self, request):
+    async def _aprocess_request_stream(self, request, context):
         """Native async integrations override this hook; legacy streams run off-loop."""
-        async with aclosing(iterate_blocking(self._process_request_stream, request)) as upstream:
+        async with aclosing(iterate_blocking(self._process_request_stream, request, context)) as upstream:
             async for event in upstream:
                 yield event
 
@@ -560,30 +563,27 @@ class AgentOPSBase(AsyncResponsesAgent):
     def _buffers_stream_output(self):
         return self.guardrails_enabled and self.guardrail_middleware.buffers_output
 
-    async def _astream_turn(self, request):
-        native_stream = self._supports_streaming()
-        async with self._request_scope():
-            async with aclosing(self._run_lifecycle(request, streaming=native_stream)) as lifecycle:
-                async for result in lifecycle:
-                    if isinstance(result, ResponsesAgentResponse):
-                        for item in result.output:
-                            yield ResponsesAgentStreamEvent(
-                                type="response.output_item.done",
-                                item=item.model_dump(exclude_none=True),
-                                custom_outputs=result.custom_outputs,
-                                **({"usage": result.usage.model_dump(exclude_none=True)} if result.usage else {}),
-                            )
-                    else:
-                        yield result
+    @staticmethod
+    def _stream_events(result):
+        if isinstance(result, ResponsesAgentResponse):
+            for item in result.output:
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.done",
+                    item=item.model_dump(exclude_none=True),
+                    custom_outputs=result.custom_outputs,
+                    **({"usage": result.usage.model_dump(exclude_none=True)} if result.usage else {}),
+                )
+        else:
+            yield result
 
     async def apredict_stream(self, request):
-        turn = self._async_request_agent()
-        async with aclosing(turn._astream_turn(request)) as stream:
-            async for event in stream:
+        async with aclosing(self.execute_stream(request, invoke=self._aprocess_request,
+            stream=self._aprocess_request_stream if self._supports_streaming() else None)) as events:
+            async for event in events:
                 yield event
 
     def predict_stream(
         self, request: ResponsesAgentRequest,
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
         """Thin synchronous MLflow adapter over the shared async middleware."""
-        yield from iterate_async_sync(lambda: self._astream_turn(request))
+        yield from iterate_async_sync(lambda: self.apredict_stream(request))

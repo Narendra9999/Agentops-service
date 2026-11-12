@@ -8,10 +8,10 @@ sequenceDiagram
     participant G as Output middleware
     U->>W: predict_stream(request)
     W->>W: iterate_async_sync of apredict_stream
-    W->>B: async for middleware.apredict_stream
-    B->>B: Isolated scope, history, prechecks, memory
+    W->>B: async for execute_stream with callbacks
+    B->>B: RequestContext scope, history, prechecks and memory
     alt Target has streaming capability
-        B->>A: stream(request, context, resources)
+        B->>A: stream(request, RequestContext)
         A->>T: Native async stream or offloaded sync stream
         loop Upstream events
             T-->>B: Output event and optional usage

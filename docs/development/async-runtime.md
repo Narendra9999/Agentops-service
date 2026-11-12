@@ -4,8 +4,8 @@ AgentOPS exposes `await agent.apredict(request)` and
 `async for event in agent.apredict_stream(request)` to async applications.
 `AgentOPSBase` uses one async middleware lifecycle for prediction and streaming,
 shared with its synchronous MLflow entry points. It awaits input checks, the customer hook,
-output checks and persistence in their original order. Each async request gets
-an isolated turn object, including its request context. Customer-specific shared
+output checks and persistence in their original order. The serving middleware passes an explicit `RequestContext` to invocation
+callbacks. Legacy standalone agents retain isolated turn objects for compatibility. Customer-specific shared
 clients and mutable fields must still be safe for concurrent access.
 
 ## MLflow boundary
@@ -73,8 +73,8 @@ streaming, guardrail and session tests cover synchronous compatibility.
 
 `AgentOPSBase._run_lifecycle` owns history loading, input guardrails, memory
 recall, customer invocation, output guardrails, usage metrics and persistence.
-Both prediction and streaming execute this implementation, with isolated turn
-objects for async callers. Native streaming integrations override
+Both prediction and streaming execute this implementation with explicit request
+state. Targets receive request context explicitly; no agent instance is cloned. Native streaming integrations override
 `_aprocess_request_stream`; existing `_process_request_stream` hooks remain
 supported off-loop. The synchronous streaming entry point uses one producer task
 on its own loop, with a one-event queue, rather than creating a new task per token.
@@ -91,7 +91,7 @@ value must be positive and finite. The deadline includes checks, agent work and
 persistence. Native operations receive cancellation; an already executing blocking
 SDK call may continue. Requests are never automatically replayed.
 
-Request integrations can register an async resource with:
+Legacy hook integrations can register an async resource with:
 
 ```python
 client = await self._request_resources.enter_async_context(client_context())
@@ -222,3 +222,19 @@ invocation and result conversion. Legacy targets use raw hooks so their public
 lifecycle does not execute a second time. See the
 [request lifecycle and diagrams](agentops-request-lifecycle.md) for the complete
 prediction and streaming paths, delivery configuration and function dependencies.
+
+## Explicit callback execution
+
+The shared wrapper calls `AgentOPSMiddleware.execute` or `execute_stream` with
+invocation callbacks. Middleware does not clone itself or a neutral target.
+`RequestContext.state` carries history, recalled memory, target-supplied facts
+for postchecks and metrics. `RequestContext.resources` is the per-request
+AsyncExitStack; callbacks can register MCP/HTTP resources there. The context is
+single-use and closes resources in the execution task on success, failure, timeout
+and early stream closure. Context-aware targets receive the context at their raw
+processing hooks, without a second middleware lifecycle.
+
+Neutral targets must keep per-request state local or accept it through an adapter;
+shared target instances and client objects must be concurrency safe. The existing
+public target contract remains unchanged. No additional model/tool operation is
+introduced by callback dispatch. See the lifecycle document for a callback example.

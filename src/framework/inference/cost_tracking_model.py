@@ -8,7 +8,7 @@ code_paths (e.g. <temp>/code/agent/Agent.py).
 AgentOPS owns the outer lifecycle for every target. Supported targets:
 
   - Plain ResponsesAgent / AsyncResponsesAgent: invoke public agent methods.
-  - Legacy AgentOPSBase: invoke raw hooks, applying the middleware only once.
+  - Context-aware AgentOPSBase: invoke raw hooks, applying the middleware only once.
   - PythonModel: adapt predict(context, model_input) and normalize its result.
 
 Guardrails, history, request tracing and persistence belong to the shared
@@ -104,7 +104,7 @@ class CostTrackingResponsesModel(AsyncResponsesAgent):
         return run_sync(self.apredict(request))
 
     async def apredict(self, request):
-        response = await self._middleware.apredict(request)
+        response = await self._middleware.execute(request, invoke=self._middleware.adapter.invoke)
         _record_usage(response)
         return response
 
@@ -123,7 +123,9 @@ class CostTrackingResponsesModel(AsyncResponsesAgent):
         from framework.observability.token_usage import response_usage
         last_usage = None
         try:
-            async with aclosing(self._middleware.apredict_stream(request)) as stream:
+            adapter = self._middleware.adapter
+            async with aclosing(self._middleware.execute_stream(request, invoke=adapter.invoke,
+                stream=adapter.stream if adapter.supports_streaming else None)) as stream:
                 async for event in stream:
                     if response_usage(event) is not None:
                         last_usage = event

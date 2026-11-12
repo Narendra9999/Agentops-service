@@ -1,7 +1,7 @@
 flowchart TD
     U[User request] --> G[Serving and configured Gateway policies]
     G --> W[CostTrackingResponsesModel]
-    W --> B[AgentOPSMiddleware: request clone and scope]
+    W --> B[AgentOPSMiddleware: explicit RequestContext]
     B --> H[Load configured history]
     H --> P[Input redaction and prechecks]
     P --> Q{Input accepted?}

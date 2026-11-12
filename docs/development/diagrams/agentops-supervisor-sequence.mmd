@@ -6,7 +6,7 @@ sequenceDiagram
     participant T as Team ChatModel / SupervisorAgent
     participant G as Team LangGraph
     participant K as Platform knowledge / Genie cost workers
-    W->>B: await apredict or consume apredict_stream
+    W->>B: execute or execute_stream with callbacks
     B->>B: Shared history, input checks, optional generic memory
     B->>A: invoke or stream
     A->>T: Public native async agent API

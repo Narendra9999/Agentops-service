@@ -19,7 +19,7 @@ def policy(stage):
 
 
 class Echo(AgentOPSBase):
-    async def _aprocess_request(self, request):
+    async def _aprocess_request(self, request, context):
         return ResponsesAgentResponse(output=[self.create_text_output_item(
             text=request.input[-1].content, id='answer')])
 
@@ -79,7 +79,7 @@ def test_stream_buffers_cross_chunk_pii_and_saves_sanitized_output():
     saved = []
 
     class Stream(Echo):
-        async def _aprocess_request_stream(self, req):
+        async def _aprocess_request_stream(self, req, context):
             for part in ['alice@', 'private.example']:
                 yield ResponsesAgentStreamEvent(type='response.output_text.delta', item_id='answer', delta=part)
             yield ResponsesAgentStreamEvent(type='response.output_item.done',
@@ -102,7 +102,7 @@ def test_stream_buffers_cross_chunk_pii_and_saves_sanitized_output():
 
 def test_buffered_stream_cannot_release_other_blocked_content():
     class Stream(Echo):
-        async def _aprocess_request_stream(self, req):
+        async def _aprocess_request_stream(self, req, context):
             yield ResponsesAgentStreamEvent(type='response.output_item.done', item=self.create_text_output_item(
                 text='Guaranteed profit for alice@private.example', id='answer'))
 

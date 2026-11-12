@@ -126,7 +126,6 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         self.sql_check_prompt = None
         # Initialize SQL query processor
         self.sql_query_processor = None
-        self._request_context = {}
         self._default_trace_tags = {
             "agentops.agent_name": "cca_agent",
             "agentops.agent_version": "0.0.0",
@@ -343,13 +342,13 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         return "I cannot answer your question. Please ask a different question."
 
     @mlflow.trace(span_type="func")
-    def classify(self, user_input, chat_history, top_k, conversation_state):
+    def classify(self, user_input, chat_history, top_k, conversation_state, request_context):
         logger.info("Classification step started")
         classification_result = invoke_with_usage_tracking(
             self.chains["classification_chain"],
             {"user_input": user_input, "chat_history": chat_history,
              "awaiting_clarification": conversation_state["awaiting_clarification"]},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         label = classification_result.get("classification", "").strip().lower()
@@ -364,12 +363,12 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         return label, context
     
     @mlflow.trace(span_type="func")
-    def lookup_func(self, user_input, chat_history, context):
+    def lookup_func(self, user_input, chat_history, context, request_context):
         logger.info("Lookup step started")
         lookup_result = invoke_with_usage_tracking(
             self.chains["lookup_chain"],
             {"user_input": user_input, "chat_history": chat_history, "context": context[0]},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Lookup chain result: %s", lookup_result)
@@ -377,7 +376,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         return lookup_result.get("lookup", "")
     
     @mlflow.trace(span_type="func")
-    def sql_func(self, user_input, chat_history, context, tables, conversation_state):
+    def sql_func(self, user_input, chat_history, context, tables, conversation_state, request_context):
         
         logger.info("SQL function step started")
         chains = self.chains
@@ -385,7 +384,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         slots_result = invoke_with_usage_tracking(
             chains["slot_extract_chain"],
             {"user_input": user_input, "chat_history": chat_history},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         slots_out=slots_result.get("slots", "").strip()
@@ -409,7 +408,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
             clarification_ques = invoke_with_usage_tracking(
                 chains["clarification_chain"],
                 {"slots_json": slots_out, "user_input": user_input},
-                self._request_context,
+                request_context.state,
                 model_name=self.llm_model,
             )
             clar_msg = clarification_ques.get("clarification_msg", "").strip()
@@ -420,7 +419,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         rewrite_result = invoke_with_usage_tracking(
             chains["rewrite_chain"],
             {"user_input": user_input, "chat_history": chat_history, "slots_json": slots_out},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Rewrite chain result: %s", rewrite_result)
@@ -432,7 +431,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         intent_result = invoke_with_usage_tracking(
             chains["intent_chain"],
             {"user_input": rewritten, "chat_history": chat_history},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Intent chain result: %s", intent_result)
@@ -441,7 +440,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         component_result = invoke_with_usage_tracking(
             chains["component_chain"],
             {"user_input": rewritten, "chat_history": chat_history},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Component chain result: %s", component_result)
@@ -453,7 +452,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         tbl_select = invoke_with_usage_tracking(
             chains["table_selector_chain"],
             {"user_input": rewritten, "chat_history": chat_history, "components": components},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         ).get("tbl_select", "").strip().lower()
 
@@ -470,7 +469,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         sch_link = invoke_with_usage_tracking(
             chains["schema_linker_chain"],
             {"user_input": rewritten, "chat_history": chat_history, "components": components, "context": sch_link_context, "tbl_select": tbl_select},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         ).get("sch_link", "").strip()
         logger.info("Schema extraction completed", extra={"sch_link": sch_link})
@@ -480,7 +479,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         sql_gen_result = invoke_with_usage_tracking(
             chains["sql_gen_chain"],
             {"user_input": rewritten, "chat_history": chat_history, "context": sql_context, "intent": intent, "components": components, "tbl_select": tbl_select, "sch_link": sch_link},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("SQL generation chain result: %s", sql_gen_result)
@@ -516,13 +515,13 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
             #return RouterResponse(type="validation", content="Your question is not a permitted select query.")
 
     @mlflow.trace(span_type="ROUTER2")
-    def router(self, user_input, chat_history, label, context, tables, conversation_state):
+    def router(self, user_input, chat_history, label, context, tables, conversation_state, request_context):
 
         logger.info("Router step started", extra={"label": label})
         if label == "lookup":
-            return self.lookup_func(user_input, chat_history, context)
+            return self.lookup_func(user_input, chat_history, context, request_context)
         elif label == "sql_query":
-            sql_func_op = self.sql_func(user_input, chat_history, context, tables, conversation_state)
+            sql_func_op = self.sql_func(user_input, chat_history, context, tables, conversation_state, request_context)
             if sql_func_op.is_sql():
                 sql_query = sql_func_op.content
                 res = self.sql_query_processor.process_result(error_message_chain=self.chains["error_message_chain"], query=sql_query)
@@ -532,7 +531,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
             return self.fallback_chain()
 
     @mlflow.trace(span_type="ROUTER1")
-    def chatbot(self, user_input, chat_history, conversation_state):
+    def chatbot(self, user_input, chat_history, conversation_state, request_context):
         logger.info("Chatbot chain started", extra={"user_input": user_input})
         chains = self.chains
 
@@ -540,7 +539,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         greeting_result = invoke_with_usage_tracking(
             chains["greeting_chain"],
             {"user_input": user_input},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Greeting chain result: %s", greeting_result)
@@ -553,7 +552,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
             chains["relevance_chain"],
             {"user_input": user_input, "chat_history": chat_history,
              "awaiting_clarification": conversation_state["awaiting_clarification"]},
-            self._request_context,
+            request_context.state,
             model_name=self.llm_model,
         )
         logger.debug("Relevance chain result: %s", relevance_result)
@@ -565,16 +564,16 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
             #print("Skipping relevance because we are awaiting clarification")
 
         # 3. Classification and context retrieval
-        label, context = self.classify(user_input, chat_history, 5, conversation_state)
+        label, context = self.classify(user_input, chat_history, 5, conversation_state, request_context)
 
-        return self.router(user_input, chat_history, label, context, self.tables, conversation_state)
+        return self.router(user_input, chat_history, label, context, self.tables, conversation_state, request_context)
 
     @mlflow.trace(span_type="CHAIN")
-    def _process_request(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+    def _process_request(self, request: ResponsesAgentRequest, request_context) -> ResponsesAgentResponse:
         """Core chat logic called by AgentOPSBase.predict().
 
         AgentOPSBase owns: pre/post-LLM guardrail checks, token tracking via
-        emit_standard_trace_metrics() (which reads self._request_context populated
+        emit_standard_trace_metrics() (which reads request_context.state populated
         by invoke_with_usage_tracking calls below), session load/save, and all
         agentops.* trace tags. This method implements domain-specific chat logic only.
         """
@@ -610,7 +609,7 @@ class ChatModel(_ChatModelBase):  # type: ignore[misc]
         )
         chat_history = memory.load_memory_variables({}).get("chat_history", "")
 
-        response_text = self.chatbot(user_input, chat_history, conversation_state)
+        response_text = self.chatbot(user_input, chat_history, conversation_state, request_context)
 
         logger.info("_process_request completed")
         return ResponsesAgentResponse(

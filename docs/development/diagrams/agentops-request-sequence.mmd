@@ -11,8 +11,8 @@ sequenceDiagram
     U->>L: Responses request
     L->>W: predict(request)
     W->>W: run_sync(apredict(request))
-    W->>B: await apredict(request)
-    B->>B: Per-request clone, scope, deadline, tags
+    W->>B: await execute(request, invoke callback)
+    B->>B: RequestContext, resource scope, deadline and tags
     opt Session history enabled
         B->>H: await history load
         H-->>B: Prior messages
@@ -24,9 +24,9 @@ sequenceDiagram
         opt Shared memory recall enabled
             B->>H: await user memory recall
         end
-        B->>A: await invoke(request, context, resources)
+        B->>A: await invoke(request, RequestContext)
         A->>T: await apredict or offloaded predict
-        Note over A,T: Legacy target uses raw hook, no second lifecycle
+        Note over A,T: Context-aware target uses raw hook, no second lifecycle
         T-->>A: Answer, artifacts, available usage
         A-->>B: Normalized ResponsesAgentResponse
         B->>G: Output redaction and checks, including Genie artifacts

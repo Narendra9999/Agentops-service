@@ -1,5 +1,4 @@
 """Customer supervisor target. AgentOPS serving wrapper owns all middleware."""
-from copy import deepcopy
 import os
 from pathlib import Path
 
@@ -10,7 +9,7 @@ from fe_multi_agent.config import Settings
 
 class ChatModel(SupervisorAgent):
     def load_context(self, context):
-        self.config = deepcopy(context.model_config or {})
+        self.config = dict(context.model_config or {})
         block = self.config.get('multi_agent') or {}
         if block.get('pattern') != 'langgraph_supervisor':
             raise ValueError('multi_agent.pattern must be langgraph_supervisor')

@@ -109,10 +109,10 @@ def test_rejected_input_never_calls_an_independent_target(streaming):
 
 
 @pytest.mark.parametrize('streaming', [False, True])
-def test_legacy_target_public_lifecycle_is_bypassed_without_double_guardrails(streaming):
+def test_context_hook_target_public_lifecycle_is_bypassed_without_double_guardrails(streaming):
     order = []
 
-    class Legacy(AgentOPSBase):
+    class Contextual(AgentOPSBase):
         def predict(self, request):
             raise AssertionError('Wrapper must call raw target hook, not legacy middleware')
 
@@ -120,16 +120,16 @@ def test_legacy_target_public_lifecycle_is_bypassed_without_double_guardrails(st
             raise AssertionError('Wrapper must own the streaming lifecycle')
             yield  # MLflow requires predict_stream to be a generator.
 
-        async def _aprocess_request(self, request):
+        async def _aprocess_request(self, request, context):
             order.append('target')
-            assert self._request_context['thread_id'] == 'thread'
+            assert context.state['thread_id'] == 'thread'
             return response()
 
-        async def _aprocess_request_stream(self, request):
-            result = await self._aprocess_request(request)
+        async def _aprocess_request_stream(self, request, context):
+            result = await self._aprocess_request(request, context)
             yield ResponsesAgentStreamEvent(type='response.output_item.done', item=result.output[0])
 
-    model = wrapper(Legacy({'guardrails': {'enabled': False}}))
+    model = wrapper(Contextual({'guardrails': {'enabled': False}}))
     guards(model, order)
     list(model.predict_stream(request(thread_id='thread'))) if streaming else model.predict(request(thread_id='thread'))
     assert order == ['pre', 'target', 'post']
@@ -243,14 +243,14 @@ def test_stream_metadata_usage_and_activity_survive_outer_middleware():
     assert order == ['pre', 'target', 'post']
 
 
-def test_concurrent_wrapper_calls_do_not_share_legacy_request_context():
-    class Legacy(AgentOPSBase):
-        async def _aprocess_request(self, req):
-            self._request_context['marker'] = req.custom_inputs['marker']
+def test_concurrent_wrapper_calls_do_not_share_explicit_request_context():
+    class Contextual(AgentOPSBase):
+        async def _aprocess_request(self, req, context):
+            context.state['marker'] = req.custom_inputs['marker']
             await asyncio.sleep(0.01)
-            return response(self._request_context['marker'])
+            return response(context.state['marker'])
 
-    model = wrapper(Legacy({'guardrails': {'enabled': False}}))
+    model = wrapper(Contextual({'guardrails': {'enabled': False}}))
 
     async def scenario():
         results = await asyncio.gather(*(model.apredict(request(marker=value)) for value in ['one', 'two']))
@@ -438,23 +438,195 @@ def test_stream_failure_does_not_release_buffered_partial_answer_or_persist_it()
 def test_wrapper_deadline_cancels_native_target_and_closes_request_resources():
     closed = []
 
-    class Legacy(AgentOPSBase):
-        async def _aprocess_request(self, req):
+    class Contextual(AgentOPSBase):
+        async def _aprocess_request(self, req, context):
             @asynccontextmanager
             async def resource():
                 try:
                     yield
                 finally:
                     closed.append('resource')
-            await self._request_resources.enter_async_context(resource())
+            await context.resources.enter_async_context(resource())
             await asyncio.sleep(10)
             raise AssertionError('Deadline should interrupt the target')
 
     config = {'guardrails': {'enabled': False}, 'middleware': {'timeout_seconds': 0.5}}
-    model = wrapper(Legacy(config), config)
+    model = wrapper(Contextual(config), config)
     import mlflow
     # Isolate deadline ownership from a missing local tracing backend. Native
     # tracing is verified separately with an actual file-store exporter.
     with mlflow.tracing.context(enabled=False), pytest.raises(TimeoutError):
         model.predict(request())
     assert closed == ['resource']
+
+
+@pytest.mark.parametrize('streaming', [False, True])
+def test_neutral_target_and_middleware_are_never_copied(monkeypatch, streaming):
+    seen = []
+
+    class Target(NativeTarget):
+        def __copy__(self):
+            raise AssertionError('A neutral target must not be cloned')
+
+        async def apredict(self, req):
+            seen.append(self)
+            await asyncio.sleep(0)
+            return response(req.custom_inputs['thread_id'])
+
+    target = Target()
+    model = wrapper(target)
+    assert not hasattr(model._middleware, '_async_request_agent')
+    before = dict(vars(model._middleware))
+
+    async def turn(value):
+        if streaming:
+            events = [event async for event in model.apredict_stream(request(thread_id=value))]
+            return events[0].item['content'][0]['text']
+        return extract_response_text(await model.apredict(request(thread_id=value)))
+
+    async def scenario():
+        assert await asyncio.gather(turn('one'), turn('two')) == ['one', 'two']
+
+    asyncio.run(scenario())
+    assert seen == [target, target]
+    assert vars(model._middleware) == before
+    assert not hasattr(model._middleware, '_request_context')
+    assert not hasattr(model._middleware, '_request_resources')
+
+
+@pytest.mark.parametrize('streaming', [False, True])
+def test_direct_callback_context_isolation_includes_history_memory_and_resources(streaming):
+    from framework.inference.agent_middleware import AgentOPSMiddleware, RequestContext
+    middleware = AgentOPSMiddleware({'guardrails': {'enabled': False}})
+    contexts = []
+    closed = []
+
+    async def history(thread, **kwargs):
+        await asyncio.sleep(0)
+        return [{'role': 'assistant', 'content': 'History for ' + thread}]
+
+    async def memory(owner, query):
+        await asyncio.sleep(0)
+        return [{'key': owner, 'content': query}]
+
+    async def save(**kwargs):
+        await asyncio.sleep(0)
+        assert kwargs['messages'][0]['content'] == 'History for ' + kwargs['session_id']
+        assert kwargs['response_text'] == kwargs['session_id']
+
+    middleware.session_store = NS(enabled=True, memory_enabled=True, _store=None,
+        _store_error=None, _uc_last_error=None, aget_history=history,
+        arecall_user_memories=memory, asave_full_session=save)
+
+    async def invoke(prepared, context):
+        contexts.append(context)
+        thread = context.state['thread_id']
+        assert context.state['user_memories'][0]['key'] == thread
+        assert prepared.input[0].content == 'History for ' + thread
+        @asynccontextmanager
+        async def resource():
+            try:
+                yield
+            finally:
+                assert context.resources is not None
+                closed.append(thread)
+        await context.resources.enter_async_context(resource())
+        await asyncio.sleep(0.01)
+        context.state['retrieved_docs'] = [thread]
+        # Raw callback results normalize before postchecks and persistence.
+        return thread
+
+    async def turn(thread):
+        context = RequestContext()
+        req = request(thread_id=thread, user_id=thread)
+        if streaming:
+            events = [e async for e in middleware.execute_stream(req, invoke=invoke, context=context)]
+            assert events[0].item['content'][0]['text'] == thread
+        else:
+            assert extract_response_text(await middleware.execute(req, invoke=invoke, context=context)) == thread
+        assert context.state['retrieved_docs'] == [thread]
+        assert context.resources is None
+        return context
+
+    async def scenario():
+        result = await asyncio.gather(turn('one'), turn('two'))
+        assert result[0] is not result[1]
+        assert result[0].state is not result[1].state
+        assert sorted(closed) == ['one', 'two']
+
+    asyncio.run(scenario())
+    assert len(contexts) == 2
+    assert not any(k in vars(middleware) for k in ('_request_context', '_request_resources', '_augmented_messages'))
+
+
+@pytest.mark.parametrize('ending', ['success', 'error', 'timeout', 'close'])
+def test_callback_stream_resources_close_in_owner_task(ending):
+    from framework.inference.agent_middleware import AgentOPSMiddleware, RequestContext
+    middleware = AgentOPSMiddleware({'guardrails': {'enabled': False},
+        'middleware': {'timeout_seconds': 0.1 if ending == 'timeout' else 10}})
+    context = RequestContext()
+    closed = []
+
+    async def invoke(req, ctx):
+        raise AssertionError('Stream callback must replace prediction')
+
+    async def stream(req, ctx):
+        owner = asyncio.current_task()
+        @asynccontextmanager
+        async def resource():
+            try:
+                yield
+            finally:
+                assert asyncio.current_task() is owner
+                closed.append(True)
+        await ctx.resources.enter_async_context(resource())
+        yield ResponsesAgentStreamEvent(type='response.in_progress',
+            response={'id': 'progress', 'object': 'response', 'status': 'in_progress', 'output': []})
+        if ending == 'error':
+            raise RuntimeError('callback failed')
+        if ending == 'timeout':
+            await asyncio.sleep(10)
+        yield ResponsesAgentStreamEvent(type='response.output_item.done', item=response().output[0])
+
+    async def scenario():
+        async with aclosing(middleware.execute_stream(request(stream_activity=True),
+            invoke=invoke, stream=stream, context=context)) as events:
+            assert (await anext(events)).type == 'response.in_progress'
+            if ending != 'close':
+                if ending in {'error', 'timeout'}:
+                    with pytest.raises(RuntimeError if ending == 'error' else TimeoutError):
+                        await anext(events)
+                else:
+                    assert (await anext(events)).type == 'response.output_item.done'
+                    with pytest.raises(StopAsyncIteration):
+                        await anext(events)
+        assert context.resources is None
+        assert closed == [True]
+
+    asyncio.run(scenario())
+
+
+def test_request_context_cannot_be_reused_after_completion_or_concurrently():
+    from framework.inference.agent_middleware import AgentOPSMiddleware, RequestContext
+    middleware = AgentOPSMiddleware({'guardrails': {'enabled': False}})
+    context = RequestContext()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def invoke(req, ctx):
+        started.set()
+        await release.wait()
+        return response()
+
+    async def scenario():
+        task = asyncio.create_task(middleware.execute(request(), invoke=invoke, context=context))
+        await started.wait()
+        with pytest.raises(ValueError, match='single-use'):
+            await middleware.execute(request(), invoke=invoke, context=context)
+        assert context.resources is not None
+        release.set()
+        await task
+        with pytest.raises(ValueError, match='single-use'):
+            await middleware.execute(request(), invoke=invoke, context=context)
+
+    asyncio.run(scenario())

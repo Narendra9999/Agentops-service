@@ -5,12 +5,12 @@ The target owns orchestration, tools and models. It does not create middleware.
 
 ## Serving contract
 
-`MLflow loader → CostTrackingResponsesModel → AgentOPSMiddleware → TargetAgentAdapter → target`
+`MLflow loader → CostTrackingResponsesModel → AgentOPSMiddleware.execute / execute_stream → invocation callback → target`
 
 The same lifecycle serves single agents and supervisors. `AgentOPSMiddleware`
 reuses `AgentOPSBase._run_lifecycle`; it does not copy its logic. Plain
 ResponsesAgents use their public APIs. PythonModels receive the normalized request
-through `predict(context=None, model_input=...)`. Legacy AgentOPSBase targets use
+through `predict(context=None, model_input=...)`. Context-aware AgentOPSBase targets use
 raw processing hooks, bypassing their public lifecycle to avoid duplicate checks.
 
 [Open the diagram viewer with zoom controls](agentops-diagrams.html).
@@ -38,11 +38,11 @@ flowchart TD
     R --> B[AgentOPSMiddleware inherited async entrypoint]
     I --> B
     AP --> B
-    B --> C[Clone request state and target adapter]
+    B --> C[New explicit RequestContext, no middleware clone]
     C --> L[AgentOPSBase._run_lifecycle]
-    L --> D[TargetAgentAdapter.invoke or stream]
+    L --> D[Invoke or stream callback through target adapter]
     D --> T[Independent target agent]
-    D --> H[Legacy raw processing hooks]
+    D --> H[Context-aware raw processing hooks]
     T --> O[Shared output checks and persistence]
     H --> O
     O --> E[Wrapper exports available usage once]
@@ -67,8 +67,8 @@ sequenceDiagram
     U->>L: Responses request
     L->>W: predict(request)
     W->>W: run_sync(apredict(request))
-    W->>B: await apredict(request)
-    B->>B: Per-request clone, scope, deadline, tags
+    W->>B: await execute(request, invoke callback)
+    B->>B: RequestContext, resource scope, deadline and tags
     opt Session history enabled
         B->>H: await history load
         H-->>B: Prior messages
@@ -80,9 +80,9 @@ sequenceDiagram
         opt Shared memory recall enabled
             B->>H: await user memory recall
         end
-        B->>A: await invoke(request, context, resources)
+        B->>A: await invoke(request, RequestContext)
         A->>T: await apredict or offloaded predict
-        Note over A,T: Legacy target uses raw hook, no second lifecycle
+        Note over A,T: Context-aware target uses raw hook, no second lifecycle
         T-->>A: Answer, artifacts, available usage
         A-->>B: Normalized ResponsesAgentResponse
         B->>G: Output redaction and checks, including Genie artifacts
@@ -110,7 +110,7 @@ sequenceDiagram
 flowchart TD
     U[User request] --> G[Serving and configured Gateway policies]
     G --> W[CostTrackingResponsesModel]
-    W --> B[AgentOPSMiddleware: request clone and scope]
+    W --> B[AgentOPSMiddleware: explicit RequestContext]
     B --> H[Load configured history]
     H --> P[Input redaction and prechecks]
     P --> Q{Input accepted?}
@@ -156,10 +156,10 @@ sequenceDiagram
     participant G as Output middleware
     U->>W: predict_stream(request)
     W->>W: iterate_async_sync of apredict_stream
-    W->>B: async for middleware.apredict_stream
-    B->>B: Isolated scope, history, prechecks, memory
+    W->>B: async for execute_stream with callbacks
+    B->>B: RequestContext scope, history, prechecks and memory
     alt Target has streaming capability
-        B->>A: stream(request, context, resources)
+        B->>A: stream(request, RequestContext)
         A->>T: Native async stream or offloaded sync stream
         loop Upstream events
             T-->>B: Output event and optional usage
@@ -202,7 +202,7 @@ sequenceDiagram
     participant T as Team ChatModel / SupervisorAgent
     participant G as Team LangGraph
     participant K as Platform knowledge / Genie cost workers
-    W->>B: await apredict or consume apredict_stream
+    W->>B: execute or execute_stream with callbacks
     B->>B: Shared history, input checks, optional generic memory
     B->>A: invoke or stream
     A->>T: Public native async agent API
@@ -253,8 +253,11 @@ capability governed by signed application context.
 
 ## Ownership and failure behavior
 
-Each request gets isolated middleware state and a target adapter copy. Existing
-clients and target fields can remain shared and must be concurrency safe. Native
+Each invocation receives a single-use `RequestContext` with an explicit state
+dictionary and request-owned resource stack. Middleware and neutral targets are
+not copied. Context-aware hooks receive `RequestContext` explicitly instead of
+assigning request state to `self`. Existing clients and neutral target fields remain
+shared and must be concurrency safe. Native
 async capabilities are awaited; blocking compatibility methods use workers.
 Request resources close on completion, failure, timeout and cooperative cancellation.
 Already-running blocking database/SDK operations cannot be rolled back by cancelling
@@ -268,10 +271,39 @@ Usage is exported from available snapshots, never added again simply because a
 wrapper exists. Model spans remain responsible for native token/cost metrics.
 Genie internal usage coverage remains partial.
 
+## Callback contract
+
+```python
+from framework.inference.agent_middleware import AgentOPSMiddleware, RequestContext
+
+middleware = AgentOPSMiddleware(config)
+
+async def invoke(request, context):
+    # Optional: context.state["retrieved_docs"] for shared postchecks.
+    # Optional: await context.resources.enter_async_context(mcp_session())
+    return await target.apredict(request)
+
+response = await middleware.execute(
+    request, invoke=invoke, context=RequestContext()
+)
+```
+
+`execute_stream` accepts an async-generator `stream(request, context)` callback
+and an `invoke` callback for the no-stream fallback. Prediction normalizes the
+callback result before output checks. The shared serving wrapper supplies adapter
+callbacks automatically; team agents do not need to adopt an AgentOPS base class.
+Synchronous target methods are adapted off-loop. Async callbacks must not place
+per-request fields on the shared middleware or target.
+
+Request context is single-use, including after failure. Reusing it concurrently or
+for another request raises an error. Its resource stack belongs to the task that
+executes the callback and closes before the invocation finishes. `context.resources`
+is available during cleanup and becomes `None` afterward. Cancelling a blocking SDK
+call still cannot roll back work already underway.
+
 ## Function dependencies
 
-The index below is generated from the implementation. Calls include conditional
-and diagnostic branches, so it is a dependency reference, not an execution order.
+Generated from the current implementation. Calls include conditional branches.
 
 ## AgentOPSBase
 
@@ -279,183 +311,193 @@ Source: `src/framework/agent_base.py`.
 
 ### `__init__()`
 
-Synchronous. Implementation line: 56.
+Synchronous. Implementation line: 57.
 
 Calls: `PIIRedactionMiddleware`, `PostLLMGuardrails`, `PreLLMGuardrails`, `SessionStore`, `agent_cfg.get`, `config.get`, `configure_trace_destination`, `gr_config.get`, `self._resolve_environment`, `tracing_config.get`.
 
-### `_async_request_agent()`
-
-Synchronous. Implementation line: 85.
-
-Calls: `copy`.
-
 ### `_resolve_environment()`
 
-Synchronous. Implementation line: 93.
+Synchronous. Implementation line: 87.
 
 Calls: `WorkspaceClient`, `host.lower`, `os.environ.get`, `tracing_config.get`, `tracing_config.get('default_tags', {}).get`.
 
 ### `_set_trace_tags()`
 
-Synchronous. Implementation line: 129.
+Synchronous. Implementation line: 123.
 
 Calls: `mlflow.update_current_trace`, `str`, `tags.items`, `tags.update`.
 
 ### `_llm_request_body()`
 
-Synchronous. Implementation line: 136.
+Synchronous. Implementation line: 130.
 
 Calls: `'\n\n'.join`, `body.setdefault`, `extract_request_text`, `input_items.append`, `instructions.append`, `item.get`, `request.model_dump`.
 
 ### `_responses_api_path()`
 
-Synchronous. Implementation line: 153.
+Synchronous. Implementation line: 147.
 
 Calls: `ValueError`, `self.config.get`, `self.config.get('llm', {}).get`.
 
 ### `_call_llm()`
 
-Synchronous. Implementation line: 160.
+Synchronous. Implementation line: 154.
 
 Calls: `ResponsesAgentResponse`, `RuntimeError`, `WorkspaceClient`, `WorkspaceClient().serving_endpoints.get_open_ai_client`, `client.post`, `item.model_dump`, `mlflow.get_current_active_span`, `mlflow.trace`, `record_response_usage`, `self._llm_request_body`, `self._responses_api_path`.
 
 ### `_call_llm_stream()`
 
-Synchronous. Implementation line: 176.
+Synchronous. Implementation line: 170.
 
 Calls: `ResponsesAgentStreamEvent`, `RuntimeError`, `WorkspaceClient`, `WorkspaceClient().serving_endpoints.get_open_ai_client`, `client.post`, `event.model_dump`, `mlflow.get_current_active_span`, `mlflow.trace`, `record_response_usage`, `self._llm_request_body`, `self._responses_api_path`.
 
 ### `predict()`
 
-Synchronous. Implementation line: 209.
+Synchronous. Implementation line: 203.
 
-Calls: `run_sync`, `self._apredict_turn`.
+Calls: `run_sync`, `self.apredict`.
 
 ### `apredict()`
 
-Async. Implementation line: 214.
+Async. Implementation line: 207.
 
-Calls: `self._async_request_agent`, `turn._apredict_turn`.
+Calls: `self.execute`.
 
 ### `_aprocess_request()`
 
-Async. Implementation line: 218.
+Async. Implementation line: 210.
 
 Calls: `run_blocking`.
 
-### `_request_scope()`
+### `_callback_lifecycle()`
 
-Async. Implementation line: 223.
+Async. Implementation line: 215.
 
-Calls: `AsyncExitStack`, `request_deadline`, `self.config.get`, `self.config.get('middleware', {}).get`.
+Calls: `aclosing`, `context.scope`, `invoke`, `self._run_lifecycle`, `self.config.get`, `self.config.get('middleware', {}).get`, `stream`, `wrap_target_result`.
 
-### `_apredict_turn()`
+### `execute()`
 
-Async. Implementation line: 235.
+Async. Implementation line: 227.
 
-Calls: `aclosing`, `self._request_scope`, `self._run_lifecycle`.
+Calls: `RequestContext`, `self._callback_lifecycle`.
+
+### `execute_stream()`
+
+Async. Implementation line: 234.
+
+Calls: `RequestContext`, `self._callback_lifecycle`, `self._stream_events`.
 
 ### `_run_lifecycle()`
 
-Async. Implementation line: 241.
+Async. Implementation line: 242.
 
-Calls: `' '.join`, `(event.custom_outputs or {}).get`, `(request.custom_inputs or {}).get`, `(response.custom_outputs or {}).get`, `ResponsesAgentRequest.model_validate`, `ResponsesAgentResponse`, `ResponsesAgentStreamEvent`, `RuntimeError`, `aclosing`, `call_async_method`, `custom_inputs.get`, `custom_outputs.get`, `custom_outputs.update`, `emit_standard_trace_metrics`, `envelope.get`, `event.model_copy`, `event.model_dump`, `extract_request_text`, `extract_response_text`, `full_output.append`, `getattr`, `isinstance`, `item.model_dump`, `json.dumps`, `len`, `logger.warning`, `message.get`, `mlflow.get_current_active_span`, `mlflow.update_current_trace`, `payload.get`, `post_result.get`, `pre_result.get`, `pre_result.get('checks', {}).get`, `pre_result.get('checks', {}).get('intent', {}).get`, `request.model_dump`, `response.custom_outputs.get`, `self._aload_session_history`, `self._aprocess_request`, `self._aprocess_request_stream`, `self._arecall_long_term_memory`, `self._buffers_stream_output`, `self._build_response`, `self._session_outputs`, `self._set_trace_tags`, `self.guardrail_middleware.process_request`, `self.guardrail_middleware.process_response`, `str`, `stream_custom.update`, `time.time`, `uuid.uuid4`.
+Calls: `' '.join`, `(event.custom_outputs or {}).get`, `(request.custom_inputs or {}).get`, `(response.custom_outputs or {}).get`, `ResponsesAgentRequest.model_validate`, `ResponsesAgentResponse`, `ResponsesAgentStreamEvent`, `RuntimeError`, `aclosing`, `call_async_method`, `custom_inputs.get`, `custom_outputs.get`, `custom_outputs.update`, `emit_standard_trace_metrics`, `envelope.get`, `event.model_copy`, `event.model_dump`, `extract_request_text`, `extract_response_text`, `full_output.append`, `getattr`, `invoke`, `isinstance`, `item.model_dump`, `json.dumps`, `len`, `logger.warning`, `message.get`, `mlflow.get_current_active_span`, `mlflow.update_current_trace`, `payload.get`, `post_result.get`, `pre_result.get`, `pre_result.get('checks', {}).get`, `pre_result.get('checks', {}).get('intent', {}).get`, `request.model_dump`, `response.custom_outputs.get`, `self._aload_session_history`, `self._arecall_long_term_memory`, `self._buffers_stream_output`, `self._build_response`, `self._session_outputs`, `self._set_trace_tags`, `self.guardrail_middleware.process_request`, `self.guardrail_middleware.process_response`, `str`, `stream`, `stream_custom.update`, `time.time`, `uuid.uuid4`.
 
 ### `_load_session_history()`
 
-Synchronous. Implementation line: 431.
+Synchronous. Implementation line: 432.
 
 Calls: `mlflow.trace`, `self._apply_session_history`, `self.session_store.get_history`.
 
 ### `_aload_session_history()`
 
-Async. Implementation line: 442.
+Async. Implementation line: 443.
 
 Calls: `getattr`, `iscoroutinefunction`, `method`, `run_blocking`, `self._apply_session_history`.
 
 ### `_apply_session_history()`
 
-Synchronous. Implementation line: 450.
+Synchronous. Implementation line: 452.
 
 Calls: `getattr`, `len`, `list`, `mlflow.update_current_trace`, `str`, `turn.get`.
 
 ### `_recall_long_term_memory()`
 
-Synchronous. Implementation line: 492.
+Synchronous. Implementation line: 494.
 
 Calls: `mlflow.trace`, `self._apply_recalled_memory`, `self.session_store.recall_user_memories`.
 
 ### `_arecall_long_term_memory()`
 
-Async. Implementation line: 501.
+Async. Implementation line: 503.
 
 Calls: `getattr`, `iscoroutinefunction`, `method`, `run_blocking`, `self._apply_recalled_memory`.
 
 ### `_apply_recalled_memory()`
 
-Synchronous. Implementation line: 509.
+Synchronous. Implementation line: 512.
 
 Calls: `len`, `mlflow.update_current_trace`, `str`.
 
 ### `_session_outputs()`
 
-Synchronous. Implementation line: 523.
+Synchronous. Implementation line: 526.
 
-No function calls.
+Calls: none.
 
 ### `_build_response()`
 
-Synchronous. Implementation line: 526.
+Synchronous. Implementation line: 529.
 
 Calls: `ResponsesAgentResponse`, `self._session_outputs`, `self.create_text_output_item`, `str`, `uuid.uuid4`.
 
 ### `_process_request()`
 
-Synchronous. Implementation line: 536.
+Synchronous. Implementation line: 539.
 
 Calls: `NotImplementedError`.
 
 ### `_process_request_stream()`
 
-Synchronous. Implementation line: 542.
+Synchronous. Implementation line: 545.
 
 Calls: `NotImplementedError`.
 
 ### `_aprocess_request_stream()`
 
-Async. Implementation line: 548.
+Async. Implementation line: 551.
 
 Calls: `aclosing`, `iterate_blocking`.
 
 ### `_supports_streaming()`
 
-Synchronous. Implementation line: 554.
+Synchronous. Implementation line: 557.
 
 Calls: `type`.
 
 ### `_buffers_stream_output()`
 
-Synchronous. Implementation line: 560.
+Synchronous. Implementation line: 563.
 
-No function calls.
+Calls: none.
 
-### `_astream_turn()`
+### `_stream_events()`
 
-Async. Implementation line: 563.
+Synchronous. Implementation line: 567.
 
-Calls: `ResponsesAgentStreamEvent`, `aclosing`, `isinstance`, `item.model_dump`, `result.usage.model_dump`, `self._request_scope`, `self._run_lifecycle`, `self._supports_streaming`.
+Calls: `ResponsesAgentStreamEvent`, `isinstance`, `item.model_dump`, `result.usage.model_dump`.
 
 ### `apredict_stream()`
 
 Async. Implementation line: 579.
 
-Calls: `aclosing`, `self._async_request_agent`, `turn._astream_turn`.
+Calls: `aclosing`, `self._supports_streaming`, `self.execute_stream`.
 
 ### `predict_stream()`
 
 Synchronous. Implementation line: 585.
 
-Calls: `iterate_async_sync`, `self._astream_turn`.
+Calls: `iterate_async_sync`, `self.apredict_stream`.
+
+## RequestContext
+
+Source: `src/framework/inference/request_context.py`.
+
+### `scope()`
+
+Async. Implementation line: 18.
+
+Calls: `AsyncExitStack`, `ValueError`, `request_deadline`.
 
 ## TargetAgentAdapter
 
@@ -467,35 +509,29 @@ Synchronous. Implementation line: 39.
 
 Calls: `isinstance`.
 
-### `for_request()`
-
-Synchronous. Implementation line: 44.
-
-Calls: `copy`, `self.target._async_request_agent`, `type`, `type(self)`.
-
 ### `supports_streaming()`
 
-Synchronous. Implementation line: 50.
+Synchronous. Implementation line: 45.
 
 Calls: `getattr`, `self.target._supports_streaming`, `type`.
 
 ### `_bind()`
 
-Synchronous. Implementation line: 60.
+Synchronous. Implementation line: 55.
 
-Calls: `context.get`, `custom.pop`, `custom.setdefault`, `dict`, `request.model_copy`.
+Calls: `context.state.get`, `custom.pop`, `custom.setdefault`, `dict`, `request.model_copy`.
 
 ### `invoke()`
 
-Async. Implementation line: 77.
+Async. Implementation line: 67.
 
-Calls: `call_async_method`, `request.model_dump`, `self._bind`, `self.target._aprocess_request`, `wrap_target_result`.
+Calls: `call_async_method`, `request.model_dump`, `self._bind`, `target._aprocess_request`, `wrap_target_result`.
 
 ### `stream()`
 
-Async. Implementation line: 88.
+Async. Implementation line: 78.
 
-Calls: `aclosing`, `getattr`, `isasyncgenfunction`, `iterate_blocking`, `native`, `self._bind`, `self.target._aprocess_request_stream`.
+Calls: `aclosing`, `getattr`, `isasyncgenfunction`, `iterate_blocking`, `native`, `self._bind`, `target._aprocess_request_stream`.
 
 ## AgentOPSMiddleware
 
@@ -503,45 +539,45 @@ Source: `src/framework/inference/agent_middleware.py`.
 
 ### `__init__()`
 
-Synchronous. Implementation line: 108.
+Synchronous. Implementation line: 98.
 
 Calls: `TargetAgentAdapter`, `self._buffers_stream_output`, `super`, `super().__init__`.
 
-### `_async_request_agent()`
-
-Synchronous. Implementation line: 120.
-
-Calls: `self.adapter.for_request`, `super`, `super()._async_request_agent`.
-
 ### `_session_outputs()`
 
-Synchronous. Implementation line: 125.
+Synchronous. Implementation line: 109.
 
-Calls: `getattr`, `getattr(self, '_request_context', {}).get`, `mlflow.get_current_active_span`, `mlflow.get_last_active_trace_id`, `str`, `super`, `super()._session_outputs`.
-
-### `_supports_streaming()`
-
-Synchronous. Implementation line: 134.
-
-No function calls.
+Calls: `(context or {}).get`, `mlflow.get_current_active_span`, `mlflow.get_last_active_trace_id`, `str`, `super`, `super()._session_outputs`.
 
 ### `_buffers_stream_output()`
 
-Synchronous. Implementation line: 137.
+Synchronous. Implementation line: 117.
 
 Calls: `ValueError`, `self.config.get`, `self.config.get('middleware', {}).get`, `self.config.get('middleware', {}).get('streaming', {}).get`, `super`, `super()._buffers_stream_output`.
 
-### `_aprocess_request()`
+### `apredict()`
 
-Async. Implementation line: 143.
+Async. Implementation line: 123.
 
-Calls: `self.adapter.invoke`.
+Calls: `ValueError`, `self.execute`.
 
-### `_aprocess_request_stream()`
+### `apredict_stream()`
 
-Async. Implementation line: 146.
+Async. Implementation line: 128.
 
-Calls: `aclosing`, `self.adapter.stream`.
+Calls: `ValueError`, `aclosing`, `self.execute_stream`.
+
+### `predict()`
+
+Synchronous. Implementation line: 136.
+
+Calls: `run_sync`, `self.apredict`.
+
+### `predict_stream()`
+
+Synchronous. Implementation line: 140.
+
+Calls: `iterate_async_sync`, `self.apredict_stream`.
 
 ## CostTrackingResponsesModel
 
@@ -563,7 +599,7 @@ Calls: `run_sync`, `self.apredict`.
 
 Async. Implementation line: 106.
 
-Calls: `_record_usage`, `self._middleware.apredict`.
+Calls: `_record_usage`, `self._middleware.execute`.
 
 ### `predict_stream()`
 
@@ -575,4 +611,4 @@ Calls: `iterate_async_sync`, `mlflow.trace`, `self.apredict_stream`.
 
 Async. Implementation line: 121.
 
-Calls: `_record_usage`, `aclosing`, `response_usage`, `self._middleware.apredict_stream`.
+Calls: `_record_usage`, `aclosing`, `response_usage`, `self._middleware.execute_stream`.

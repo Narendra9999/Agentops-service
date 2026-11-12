@@ -10,11 +10,12 @@ from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse, ResponsesAgentStreamEvent
 
 from framework.agent_base import AgentOPSBase
+from framework.inference.request_context import RequestContext
 from framework.inference import extract_request_text, extract_response_text
 
 
 class EchoAgent(AgentOPSBase):
-    def _process_request(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+    def _process_request(self, request: ResponsesAgentRequest, context) -> ResponsesAgentResponse:
         self.received = request
         return ResponsesAgentResponse(
             output=[self.create_text_output_item(text=extract_request_text(request), id="answer")],
@@ -84,7 +85,7 @@ def test_non_streaming_hook_has_valid_streaming_fallback():
 
 
 class StreamingEchoAgent(EchoAgent):
-    def _process_request_stream(self, request: ResponsesAgentRequest):
+    def _process_request_stream(self, request: ResponsesAgentRequest, context):
         for text in ("hel", "lo"):
             yield ResponsesAgentStreamEvent(type="response.output_text.delta", item_id="answer", delta=text)
         yield ResponsesAgentStreamEvent(
@@ -298,20 +299,20 @@ def mock_provider(monkeypatch, agent, events=None):
     agent.llm_endpoint = "databricks-gpt-oss-120b"
     agent.max_tokens = 2048
     agent.temperature = 0.1
-    agent._request_context = {}
-    return client, requests
+    context = RequestContext()
+    return client, requests, context
 
 
 @pytest.mark.parametrize("api", ["open-responses", "responses"])
 def test_provider_uses_responses_transport_and_tracks_native_usage(monkeypatch, api):
     agent = make_agent()
     agent.config["llm"] = {"responses_api": api}
-    client, requests = mock_provider(monkeypatch, agent)
+    client, requests, context = mock_provider(monkeypatch, agent)
     with client:
         response = agent._call_llm(ResponsesAgentRequest(
             input=[{"role": "system", "content": "system instruction"}, {"role": "user", "content": "question"}],
             custom_inputs={"thread_id": "private"}, max_output_tokens=128, temperature=0,
-        ))
+        ), context)
     assert requests[0].url.path == f"/serving-endpoints/{api}"
     body = json.loads(requests[0].content)
     assert body["input"] == [{"type": "message", "role": "user", "content": "question"}]
@@ -320,7 +321,7 @@ def test_provider_uses_responses_transport_and_tracks_native_usage(monkeypatch, 
     assert body["temperature"] == 0
     assert "messages" not in body and "custom_inputs" not in body
     assert extract_response_text(response) == "answer"
-    usage = agent._request_context["token_usage_history"][0]
+    usage = context.state["token_usage_history"][0]
     assert usage["prompt_tokens"] == 10 and usage["completion_tokens"] == 5
     assert usage["reasoning_tokens"] == 1 and usage["cached_tokens"] == 2
 
@@ -340,20 +341,20 @@ def test_provider_stream_forwards_native_events_and_tracks_final_usage(monkeypat
         {"type": "response.completed", "sequence_number": 3, "response": payload},
     ]
     agent = make_agent()
-    client, requests = mock_provider(monkeypatch, agent, events)
+    client, requests, context = mock_provider(monkeypatch, agent, events)
     with client:
-        streamed = list(agent._call_llm_stream(ResponsesAgentRequest(input=[{"role": "user", "content": "question"}])))
+        streamed = list(agent._call_llm_stream(ResponsesAgentRequest(input=[{"role": "user", "content": "question"}]), context))
     assert [event.type for event in streamed] == ["response.output_text.delta", "response.output_item.done"]
     assert streamed[0].item_id == streamed[1].item["id"] == "answer"
     assert json.loads(requests[0].content)["stream"] is True
-    assert agent._request_context["token_usage_history"][0]["total_tokens"] == 15
+    assert context.state["token_usage_history"][0]["total_tokens"] == 15
 
 
 def test_provider_stream_rejects_truncated_stream(monkeypatch):
     agent = make_agent()
-    client, _ = mock_provider(monkeypatch, agent, [])
+    client, _, context = mock_provider(monkeypatch, agent, [])
     with client, pytest.raises(RuntimeError, match="without a response.completed"):
-        list(agent._call_llm_stream(ResponsesAgentRequest(input=[{"role": "user", "content": "question"}])))
+        list(agent._call_llm_stream(ResponsesAgentRequest(input=[{"role": "user", "content": "question"}]), context))
 
 
 def test_lakebase_preserves_native_tools_and_structured_text():
@@ -390,7 +391,7 @@ def test_shipped_agent_hooks_accept_native_requests_and_preserve_tool_history(re
         exec(compile(ast.Module(body=definitions, type_ignores=[]), str(source_path), "exec"), namespace)
     agent_class = namespace[class_name]
     agent = agent_class.__new__(agent_class)
-    agent._request_context = {}
+    context = RequestContext()
     agent.max_history_turns = 1
     agent.max_retrieval_turns = 1
     agent.system_prompt = "system instruction"
@@ -406,15 +407,15 @@ def test_shipped_agent_hooks_accept_native_requests_and_preserve_tool_history(re
          "arguments": "{}", "encrypted_content": "opaque"},
         {"type": "function_call_output", "call_id": "call-1", "output": "found"},
     ])
-    assert agent._process_request(request) is response
+    assert agent._process_request(request, context) is response
     augmented = agent._call_llm.call_args.args[0]
     assert augmented.input[-2:] == request.input[-2:]
     assert extract_request_text(augmented) == "question"
     assert "old question" not in str(augmented.input)
-    assert agent._request_context["retrieved_docs"] == [{"text": "documentation"}]
+    assert context.state["retrieved_docs"] == [{"text": "documentation"}]
     event = ResponsesAgentStreamEvent(type="response.output_item.done", item=response.output[0].model_dump(exclude_none=True))
     agent._call_llm_stream = MagicMock(return_value=iter([event]))
-    assert list(agent._process_request_stream(request)) == [event]
+    assert list(agent._process_request_stream(request, context)) == [event]
 
 
 def test_cca_native_hook_preserves_clarification_history_and_streaming_fallback():
@@ -451,7 +452,8 @@ def test_cca_native_hook_preserves_clarification_history_and_streaming_fallback(
     response = agent.predict(request)
     assert isinstance(response, ResponsesAgentResponse)
     assert extract_response_text(response) == "CCA answer"
-    agent.chatbot.assert_called_once_with("transactions", "earlier conversation", {"awaiting_clarification": True})
+    assert agent.chatbot.call_args.args[:3] == ("transactions", "earlier conversation", {"awaiting_clarification": True})
+    assert isinstance(agent.chatbot.call_args.args[3], RequestContext)
     agent.build_memory_from_messages.assert_called_once_with([
         {"role": "user", "content": "first question"},
         {"role": "assistant", "content": "Clarification Required: which table?"},
@@ -488,12 +490,12 @@ def test_provider_native_trace_metrics_match_agentops_once(tmp_path, monkeypatch
              'output_index': 0, 'item': payload['output'][0]},
             {'type': 'response.completed', 'sequence_number': 1, 'response': payload},
         ] if streaming else None
-        client, requests = mock_provider(monkeypatch, agent, events)
+        client, requests, context = mock_provider(monkeypatch, agent, events)
         with client, mlflow.start_span(name='request', span_type='AGENT') as parent:
             if streaming:
-                list(agent._call_llm_stream(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}])))
+                list(agent._call_llm_stream(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}]), context))
             else:
-                agent._call_llm(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}]))
+                agent._call_llm(ResponsesAgentRequest(input=[{'role': 'user', 'content': 'question'}]), context)
             assert parent.get_attribute('mlflow.chat.tokenUsage') is None
             assert parent.get_attribute('mlflow.llm.cost') is None
         mlflow.flush_trace_async_logging()
@@ -505,7 +507,7 @@ def test_provider_native_trace_metrics_match_agentops_once(tmp_path, monkeypatch
         usage = spans[0].get_attribute('mlflow.chat.tokenUsage')
         assert usage == {'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15,
                          'cached_tokens': 2, 'reasoning_tokens': 1}
-        history = agent._request_context['token_usage_history']
+        history = context.state['token_usage_history']
         assert len(history) == 1 and history[0]['total_tokens'] == usage['total_tokens']
         cost = spans[0].get_attribute('mlflow.llm.cost')
         assert cost['total_cost'] == pytest.approx(history[0]['total_cost_usd'])

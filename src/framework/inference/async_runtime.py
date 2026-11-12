@@ -121,14 +121,11 @@ async def iterate_blocking(factory, /, *args, **kwargs):
 class AsyncResponsesAgent(ResponsesAgent):
     """Add awaitable APIs while retaining MLflow's synchronous serving contract."""
 
-    def _async_request_agent(self):
-        return self
-
     async def apredict(self, request):
-        return await run_blocking(self._async_request_agent().predict, request)
+        return await run_blocking(self.predict, request)
 
     async def apredict_stream(self, request):
-        async with aclosing(iterate_blocking(self._async_request_agent().predict_stream, request)) as stream:
+        async with aclosing(iterate_blocking(self.predict_stream, request)) as stream:
             async for event in stream:
                 yield event
 

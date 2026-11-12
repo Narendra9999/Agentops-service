@@ -5,14 +5,14 @@ flowchart TD
     P --> R[run_sync of wrapper.apredict]
     S --> I[iterate_async_sync of wrapper.apredict_stream]
     A[Async application] --> AP[wrapper.apredict or wrapper.apredict_stream]
-    R --> B[AgentOPSMiddleware inherited async entrypoint]
+    R --> B[AgentOPSMiddleware.execute or execute_stream]
     I --> B
     AP --> B
-    B --> C[Clone request state and target adapter]
+    B --> C[New explicit RequestContext, no middleware clone]
     C --> L[AgentOPSBase._run_lifecycle]
-    L --> D[TargetAgentAdapter.invoke or stream]
+    L --> D[Invoke or stream callback through target adapter]
     D --> T[Independent target agent]
-    D --> H[Legacy raw processing hooks]
+    D --> H[Context-aware raw processing hooks]
     T --> O[Shared output checks and persistence]
     H --> O
     O --> E[Wrapper exports available usage once]

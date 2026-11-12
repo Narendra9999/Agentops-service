@@ -24,10 +24,11 @@ def wrapper(monkeypatch):
 
 
 def set_stream(model, factory):
-    async def stream(request):
+    async def stream(request, **kwargs):
         for event in factory(request):
             yield event
-    model._middleware = NS(apredict_stream=stream)
+    model._middleware = NS(execute_stream=stream,
+        adapter=NS(invoke=None, stream=None, supports_streaming=False))
 
 
 def test_streaming_usage_snapshots_are_not_summed_and_events_unchanged(monkeypatch):
