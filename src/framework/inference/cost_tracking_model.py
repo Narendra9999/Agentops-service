@@ -14,8 +14,9 @@ AgentOPS owns the outer lifecycle for every target. Supported targets:
 Guardrails, history, request tracing and persistence belong to the shared
 AgentOPSMiddleware, not to a supervisor-specific team wrapper.
 
-No team changes required to switch between patterns — the class name
-"ChatModel" and the file name "Agent.py" are the only contracts.
+The team entry file is Agent.py. ChatModel is the default class;
+inference.target_class can select an explicit alternate implementation.
+inference.target_protocol selects responses or chat_completions.
 """
 
 import os
@@ -35,7 +36,7 @@ from typing import Generator
 logger = logging.getLogger(__name__)
 
 
-def _resolve_inner_model():
+def _resolve_inner_model(config=None):
     """Locate the team's Agent.py via sys.path and return a ChatModel instance."""
     import sys as _sys
 
@@ -51,7 +52,8 @@ def _resolve_inner_model():
                     continue
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
-                cls = getattr(mod, "ChatModel", None)
+                class_name = (config or {}).get("inference", {}).get("target_class", "ChatModel")
+                cls = getattr(mod, class_name, None)
                 if cls is not None:
                     logger.info("Resolved inner agent from: %s", fp)
                     return cls()
@@ -91,7 +93,7 @@ class CostTrackingResponsesModel(AsyncResponsesAgent):
     """
 
     def load_context(self, context):
-        self._inner = _resolve_inner_model()
+        self._inner = _resolve_inner_model(getattr(context, "model_config", None))
         if hasattr(self._inner, "load_context"):
             self._inner.load_context(context)
         config = getattr(context, "model_config", None)

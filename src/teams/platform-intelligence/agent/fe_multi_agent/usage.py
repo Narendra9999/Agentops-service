@@ -85,19 +85,19 @@ class UsageMeter(BaseCallbackHandler):
             agent, model = self.started.pop(str(run_id), ('unattributed', 'unknown'))
             self.calls.setdefault(str(run_id), {'agent': agent, 'model': model, 'usage': None})
 
-    def observe_remote(self, agent, endpoint, response):
-        from framework.observability.token_usage import response_usage
-        custom = as_dict(response.get('custom_outputs'))
-        reported = response_usage(response)
+    def observe_remote(self, agent, endpoint, response, invocation_id=None):
+        from framework.observability.remote_usage import remote_usage_record
+        # Remote caller supplies a stable invocation ID; object identity is only
+        # the fallback for direct integrations without a transport invocation ID.
+        record = remote_usage_record(agent, endpoint, response,
+                                     invocation_id or str(id(response)))
         with self.lock:
-            self.remote_workers.append({'agent':agent,'endpoint':endpoint,
-                                        'trace_id':custom.get('trace_id'), 'usage':reported,
-                                        'usage_metrics':custom.get('usage_metrics')})
-            self.unmetered.add('remote_worker:' + agent)
+            self.remote_workers.append(record)
 
     def summary(self):
         with self.lock:
             calls, unmetered = list(self.calls.values()), sorted(self.unmetered)
+            workers, call_ids = list(self.remote_workers), list(self.calls)
         totals = dict.fromkeys(('input_tokens','output_tokens','total_tokens','cached_tokens','reasoning_tokens'), 0)
         groups, missing, unpriced, cost = {}, 0, 0, 0.0
         for call in calls:
@@ -122,13 +122,15 @@ class UsageMeter(BaseCallbackHandler):
         # another call has no reported tokens/rates. Missing is not zero usage.
         partial = bool(missing or unpriced or unmetered)
         no_priced_usage = bool(calls or unmetered) and len(calls) == missing + unpriced
-        return {**totals, 'llm_requests': len(calls), 'usage_missing_calls': missing,
+        local = {**totals, 'llm_requests': len(calls), 'usage_missing_calls': missing,
                 'usage_status': 'partial' if missing or unmetered else 'complete',
                 'cost_status': 'unavailable' if no_priced_usage else 'partial_estimate' if partial else 'estimated',
                 'estimated_cost_usd': None if no_priced_usage else round(cost, 10), 'unpriced_calls': unpriced,
                 'unmetered_services': unmetered, 'by_agent_model': list(groups.values()),
                 'source': 'provider_reported', 'scope': 'observed_model_calls',
-                'remote_workers': list(self.remote_workers)}
+                'model_call_ids': call_ids}
+        from framework.observability.remote_usage import rollup_remote_usage
+        return rollup_remote_usage(local, workers, local_call_ids=call_ids)
 
 
 def current_meter():
@@ -137,9 +139,9 @@ def current_meter():
 
 def summary_tags(summary):
     """Compact request totals; detailed agent/model accounting belongs in the response."""
-    tags = usage_tags(summary, source='provider_reported', scope='observed_model_calls')
+    tags = usage_tags(summary, source='provider_reported', scope=summary.get('scope', 'observed_model_calls'))
     tags.update({'agentops.llm_requests': str(summary['llm_requests']),
-                 'agentops.cost.kind': 'configured_rate_estimate',
+                 'agentops.cost.kind': summary.get('cost_kind', 'configured_rate_estimate'),
                  'agentops.cost.status': summary['cost_status'],
                  'agentops.usage.status': summary['usage_status'],
                  'agentops.usage.missing_calls': str(summary['usage_missing_calls'])})

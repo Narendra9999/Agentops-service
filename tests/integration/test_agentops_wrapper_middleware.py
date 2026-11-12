@@ -113,6 +113,12 @@ def test_context_hook_target_public_lifecycle_is_bypassed_without_double_guardra
     order = []
 
     class Contextual(AgentOPSBase):
+        def __copy__(self):
+            raise AssertionError('A context-aware target must not be cloned')
+
+        def __deepcopy__(self, memo):
+            raise AssertionError('A context-aware target must not be deep-copied')
+
         def predict(self, request):
             raise AssertionError('Wrapper must call raw target hook, not legacy middleware')
 
@@ -467,6 +473,9 @@ def test_neutral_target_and_middleware_are_never_copied(monkeypatch, streaming):
     class Target(NativeTarget):
         def __copy__(self):
             raise AssertionError('A neutral target must not be cloned')
+
+        def __deepcopy__(self, memo):
+            raise AssertionError('A neutral target must not be deep-copied')
 
         async def apredict(self, req):
             seen.append(self)

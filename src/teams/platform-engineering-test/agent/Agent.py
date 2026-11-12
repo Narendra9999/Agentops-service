@@ -291,4 +291,56 @@ class ChatModel(AgentOPSBase):
         yield from self._call_llm_stream(augmented_request, context)
 
 
+class ChatCompletionsModel:
+    """Plain chat target demonstrating integration without AgentOPS inheritance.
+
+    Reuse the existing team's retrieval/tool implementation. Only its preparation
+    helpers run; AgentOPS owns the outer lifecycle through the serving wrapper.
+    """
+    def load_context(self, context):
+        from databricks.sdk import WorkspaceClient
+        self.rag = ChatModel()
+        self.rag.load_context(context)
+        self.client = WorkspaceClient().serving_endpoints.get_open_ai_client()
+        self.model = self.rag.llm_endpoint
+
+    def _prepare(self, messages, custom_inputs):
+        from framework.inference.chat_completions import chat_messages
+        from framework.inference.request_context import RequestContext
+        memories = (custom_inputs.get('agentops_context') or {}).get('user_memories', [])
+        req = ResponsesAgentRequest(input=messages, custom_inputs=custom_inputs)
+        augmented, docs = self.rag._build_augmented_request(req, RequestContext(state={'user_memories': memories}))
+        return chat_messages(augmented), {'source_urls': [d['url'] for d in docs if d.get('url')]}
+
+    def _native_usage(self, span, usage):
+        from framework.observability.token_usage import export_native_model_usage
+        from tools.token_tracker import TokenTracker
+        export_native_model_usage(span, usage=usage, model_name=self.model,
+            rates_by_model={self.model: TokenTracker(model_name=self.model).pricing_per_million()})
+
+    def predict(self, *, messages, custom_inputs):
+        prepared, metadata = self._prepare(messages, custom_inputs)
+        with mlflow.start_span(name='chat_completions.model', span_type='LLM') as span:
+            result = self.client.chat.completions.create(model=self.model, messages=prepared,
+                max_tokens=self.rag.max_tokens, temperature=self.rag.temperature)
+            data = result.model_dump(exclude_none=True)
+            self._native_usage(span, data.get('usage'))
+            data['model'] = self.model
+            data['custom_outputs'] = metadata
+            return data
+
+    def predict_stream(self, *, messages, custom_inputs):
+        prepared, metadata = self._prepare(messages, custom_inputs)
+        with mlflow.start_span(name='chat_completions.model', span_type='LLM') as span:
+            with self.client.chat.completions.create(model=self.model, messages=prepared,
+                max_tokens=self.rag.max_tokens, temperature=self.rag.temperature,
+                stream=True, stream_options={'include_usage': True}) as chunks:
+                for chunk in chunks:
+                    data = chunk.model_dump(exclude_none=True)
+                    data['model'] = self.model
+                    if data.get('usage'): self._native_usage(span, data['usage'])
+                    yield data
+            yield {'choices': [], 'custom_outputs': metadata}
+
+
 mlflow.models.set_model(model=ChatModel())

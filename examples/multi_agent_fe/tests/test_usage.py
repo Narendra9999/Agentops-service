@@ -103,3 +103,62 @@ def test_failed_request_still_exports_compact_usage_and_resets_meter(monkeypatch
     assert tags['agentops.cost.status']=='unavailable'
     assert 'agentops.cost_usd' not in tags
     assert current_meter() is None
+
+
+def test_remote_rollup_deduplicates_invocations_and_does_not_sum_nested_breakdown():
+    meter=UsageMeter({'model-a':{'input':2,'output':4}})
+    run=uuid4();meter.on_chat_model_start({},[],run_id=run,invocation_params={'model':'model-a'})
+    meter.on_llm_end(response({'input_tokens':10,'output_tokens':5,'total_tokens':15}),run_id=run)
+    remote={'usage':{'input_tokens':100,'output_tokens':20},'custom_outputs':{
+        'trace_id':'trace-worker','execution_id':'worker-execution',
+        'usage_metrics':{'llm_requests':2,'usage_status':'complete','cost_status':'estimated',
+                        'estimated_cost_usd':0.01,'model_call_ids':['remote-1','remote-2'],
+                        'by_agent_model':[{'total_tokens':120}]}}}
+    meter.observe_remote('worker','endpoint',remote,invocation_id='transport-1')
+    meter.observe_remote('worker','endpoint',remote,invocation_id='transport-1')
+    summary=meter.summary()
+    assert summary['total_tokens']==135 and summary['llm_requests']==3
+    assert summary['estimated_cost_usd']==pytest.approx(.01004)
+    assert summary['usage_status']=='complete' and summary['cost_status']=='estimated'
+    assert len(summary['remote_workers'])==1
+    assert summary['scope']=='observed_model_calls_and_remote_workers'
+    assert summary['remote_workers'][0]['accounting_status']=='included'
+    assert meter.summary()['total_tokens']==135  # summary is pure, not accumulated twice
+
+
+def test_remote_missing_usage_or_cost_remains_partial_not_zero():
+    meter=UsageMeter()
+    meter.observe_remote('one','endpoint',{'output':[]},invocation_id='one')
+    meter.observe_remote('two','endpoint',{'usage':{'input_tokens':10,'output_tokens':2}},invocation_id='two')
+    summary=meter.summary()
+    assert summary['total_tokens']==12 and summary['usage_status']=='partial'
+    assert summary['cost_status']=='unavailable' and summary['estimated_cost_usd'] is None
+    assert 'remote_worker:one' in summary['unmetered_services']
+
+
+def test_remote_aggregate_overlapping_local_calls_is_not_added():
+    meter=UsageMeter();run=uuid4()
+    meter.on_llm_end(response({'input_tokens':10,'output_tokens':5,'total_tokens':15}),run_id=run)
+    meter.observe_remote('worker','endpoint',{'usage':{'input_tokens':10,'output_tokens':5},
+        'custom_outputs':{'usage_metrics':{'model_call_ids':[str(run)]}}},invocation_id='transport')
+    summary=meter.summary()
+    assert summary['total_tokens']==15 and summary['usage_status']=='partial'
+    assert summary['remote_workers'][0]['accounting_status']=='overlap_excluded'
+
+
+def test_distinct_invocations_sharing_trace_are_both_counted():
+    meter=UsageMeter()
+    remote={'usage':{'input_tokens':10,'output_tokens':2},'custom_outputs':{'trace_id':'joined-trace'}}
+    meter.observe_remote('worker','endpoint',remote,invocation_id='one')
+    meter.observe_remote('worker','endpoint',remote,invocation_id='two')
+    assert meter.summary()['total_tokens']==24
+
+
+def test_remote_agentops_tags_supply_cost_and_call_count():
+    meter=UsageMeter()
+    meter.observe_remote('worker','endpoint',{'usage':{'input_tokens':10,'output_tokens':2},
+        'custom_outputs':{'tags':{'agentops.cost_usd':'.02','agentops.llm_requests':'2',
+                                 'agentops.usage.status':'complete','agentops.cost.status':'estimated'}}},invocation_id='one')
+    summary=meter.summary()
+    assert summary['estimated_cost_usd']==.02 and summary['llm_requests']==2
+    assert summary['cost_status']=='estimated'

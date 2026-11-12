@@ -140,3 +140,8 @@ smoke_test:
       citation.
     grounding: Explain Auto Loader ingestion with a Databricks documentation citation.
     short_input: '?'
+
+inference:
+  target_protocol: chat_completions
+  target_class: ChatCompletionsModel
+  max_stream_chars: 1000000

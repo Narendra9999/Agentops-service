@@ -7,7 +7,7 @@ from fe_multi_agent.services import ExistingResponsesWorker, ExistingGenieWorker
 from fe_multi_agent.usage import UsageMeter, _meter
 
 
-def test_existing_responses_worker_contract_and_separate_usage(monkeypatch):
+def test_existing_responses_worker_contract_and_rolled_up_usage(monkeypatch):
     import requests
     calls=[]
     class Response:
@@ -25,9 +25,11 @@ def test_existing_responses_worker_contract_and_separate_usage(monkeypatch):
     assert len(calls)==1 and calls[0][1]['timeout']==(20,240)
     assert calls[0][1]['json']=={'input':[{'role':'user','content':'Question'},{'role':'user','content':'Delegated task'}]}
     summary=meter.summary()
-    assert summary['total_tokens']==0 and summary['remote_workers'][0]['usage']['total_tokens']==120
+    assert summary['total_tokens']==120 and summary['remote_workers'][0]['usage']['total_tokens']==120
     assert summary['cost_status']=='unavailable'
-    assert 'remote_worker:platform_docs' in summary['unmetered_services']
+    assert summary['usage_status']=='complete'
+    assert summary['unpriced_calls']==1
+    assert summary['remote_workers'][0]['accounting_status']=='included'
 
 
 def test_remote_failure_is_not_retried(monkeypatch):

@@ -36,13 +36,24 @@ def wrap_target_result(result):
 class TargetAgentAdapter:
     """Provide invocation callbacks, binding explicit context to context-aware agents."""
 
-    def __init__(self, target):
+    def __init__(self, target, config=None):
         self.target = target
         self.contextual = isinstance(target, AgentOPSBase)
         self.responses = isinstance(target, ResponsesAgent)
+        protocol = (config or {}).get('inference', {}).get('target_protocol', 'responses')
+        if protocol not in {'responses', 'chat_completions'}:
+            raise ValueError('inference.target_protocol must be responses or chat_completions')
+        self.chat = None
+        if protocol == 'chat_completions':
+            if self.contextual:
+                raise ValueError('Chat Completions targets expose public callbacks, not AgentOPSBase hooks')
+            from framework.inference.chat_completions import ChatCompletionsAdapter
+            self.chat = ChatCompletionsAdapter(target, config or {})
 
     @property
     def supports_streaming(self):
+        if self.chat is not None:
+            return self.chat.supports_streaming
         if self.contextual:
             return self.target._supports_streaming()
         if not self.responses:
@@ -66,6 +77,8 @@ class TargetAgentAdapter:
 
     async def invoke(self, request, context):
         target, request = self._bind(request, context)
+        if self.chat is not None:
+            return await self.chat.invoke(request, context)
         if self.contextual:
             result = await target._aprocess_request(request, context)
         elif self.responses:
@@ -77,7 +90,9 @@ class TargetAgentAdapter:
 
     async def stream(self, request, context):
         target, request = self._bind(request, context)
-        if self.contextual:
+        if self.chat is not None:
+            stream = self.chat.stream(request, context)
+        elif self.contextual:
             stream = target._aprocess_request_stream(request, context)
         else:
             native = getattr(target, 'apredict_stream', None)
@@ -97,7 +112,7 @@ class AgentOPSMiddleware(AgentOPSBase):
 
     def __init__(self, config, target=None):
         super().__init__(config)
-        self.adapter = TargetAgentAdapter(target) if target is not None else None
+        self.adapter = TargetAgentAdapter(target, config) if target is not None else None
         if self.adapter is not None and self.adapter.contextual:
             self.session_store = target.session_store
             self.pre_llm_guardrails = target.pre_llm_guardrails

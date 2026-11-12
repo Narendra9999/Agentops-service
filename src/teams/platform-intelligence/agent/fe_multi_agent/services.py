@@ -111,7 +111,7 @@ class ExistingResponsesWorker:
             if remote_trace:
                 span.set_attribute('agentops.worker.trace_id', str(remote_trace))
             if current_meter():
-                current_meter().observe_remote(self.agent, self.endpoint, result)
+                current_meter().observe_remote(self.agent, self.endpoint, result, invocation_id=span.span_id)
             update = {'messages':[AIMessage(content=text,name=self.agent)]}
             if self.agent=='cost_estimation' and custom.get('genie_result'):
                 update['genie_result']=custom['genie_result']
