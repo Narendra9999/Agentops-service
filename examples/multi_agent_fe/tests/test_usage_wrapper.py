@@ -18,10 +18,16 @@ def wrapper(monkeypatch):
     namespace['AsyncResponsesAgent'] = namespace['ResponsesAgent']
     exec(compile(ast.Module(body=nodes,type_ignores=[]),str(source),'exec'),namespace)
     result=namespace['CostTrackingResponsesModel']()
-    result._inner_is_responses_agent=True
     tags=[]
     monkeypatch.setattr(mlflow,'update_current_trace',lambda **kwargs:tags.append(kwargs['tags']))
     return result,tags
+
+
+def set_stream(model, factory):
+    async def stream(request):
+        for event in factory(request):
+            yield event
+    model._middleware = NS(apredict_stream=stream)
 
 
 def test_streaming_usage_snapshots_are_not_summed_and_events_unchanged(monkeypatch):
@@ -29,7 +35,7 @@ def test_streaming_usage_snapshots_are_not_summed_and_events_unchanged(monkeypat
     events=[{'type':'response.in_progress'},
             {'type':'response.output_item.done','usage':{'input_tokens':100,'output_tokens':10}},
             {'type':'response.completed','response':{'usage':{'input_tokens':100,'output_tokens':20}}}]
-    model._inner=NS(predict_stream=lambda request:iter(events))
+    set_stream(model, lambda request: iter(events))
     assert list(model.predict_stream(object()))==events
     assert len(tags)==1 and tags[0]['agentops.tokens.total']=='120'
     assert tags[0]['agentops.usage.scope']=='response_aggregate'
@@ -40,7 +46,7 @@ def test_stream_error_is_preserved_and_observed_usage_tagged(monkeypatch):
     def stream(request):
         yield {'type':'response.output_item.done','usage':{'input_tokens':7,'output_tokens':2}}
         raise RuntimeError('original provider failure')
-    model._inner=NS(predict_stream=stream)
+    set_stream(model, stream)
     with pytest.raises(RuntimeError,match='original provider failure'):
         list(model.predict_stream(object()))
     assert tags[0]['agentops.tokens.total']=='9'

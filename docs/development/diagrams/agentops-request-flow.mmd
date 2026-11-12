@@ -1,0 +1,32 @@
+flowchart TD
+    U[User request] --> G[Serving and configured Gateway policies]
+    G --> W[CostTrackingResponsesModel]
+    W --> B[AgentOPSMiddleware: request clone and scope]
+    B --> H[Load configured history]
+    H --> P[Input redaction and prechecks]
+    P --> Q{Input accepted?}
+    Q -->|No| X[Filtered response]
+    Q -->|Yes| M[Recall configured user memory]
+    M --> A[TargetAgentAdapter]
+    A --> S{Target supports stream and client requested it?}
+    S -->|No| T[Invoke target prediction once]
+    S -->|Yes| ST[Consume target stream once]
+    ST --> BF{Delivery policy}
+    BF -->|buffered default| HOLD[Collect output and usage]
+    BF -->|explicit passthrough| LIVE[Forward output while collecting]
+    ST --> ACT[Optional public activity events only]
+    T --> POST[Output redaction and postchecks]
+    HOLD --> POST
+    LIVE --> POST
+    POST --> OK{Output accepted?}
+    OK -->|Yes| SAVE[Metrics and configured persistence]
+    OK -->|No buffered| X
+    OK -->|No passthrough| WARN[Flag violation, delivered tokens cannot be retracted]
+    WARN --> SAVE
+    SAVE --> FINAL[Merge tags, IDs and artifacts]
+    FINAL --> CLOSE[Close resources, wrapper usage export]
+    X --> CLOSE
+    CLOSE --> OUT[Response or completed item events]
+    ACT --> CLIENT[Client]
+    LIVE --> CLIENT
+    OUT --> CLIENT

@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    participant W as Shared serving wrapper
+    participant B as AgentOPSMiddleware
+    participant A as TargetAgentAdapter
+    participant T as Team ChatModel / SupervisorAgent
+    participant G as Team LangGraph
+    participant K as Platform knowledge / Genie cost workers
+    W->>B: await apredict or consume apredict_stream
+    B->>B: Shared history, input checks, optional generic memory
+    B->>A: invoke or stream
+    A->>T: Public native async agent API
+    Note over W,T: Target does not construct or call AgentOPS middleware
+    T->>T: Resolve signed context and file memory access
+    T->>G: build_graph then await graph.ainvoke
+    loop Team-owned orchestration
+        G->>G: Supervisor routing and explicit memory tool calls
+        opt Specialist required
+            G->>K: Invoke selected worker
+            K-->>G: Answer and available artifacts
+        end
+        opt Authorized memory operation
+            G->>G: Lakebase file-style memory workspace
+        end
+    end
+    G-->>T: Final answer and Genie result
+    T-->>B: Response, usage and public activity if requested
+    B->>B: Shared output checks including artifacts
+    B->>B: Metrics, optional session save, resource cleanup
+    B-->>W: Checked response or completed item events
+    W->>W: Export available aggregate usage

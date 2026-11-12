@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    actor U as Client
+    participant W as CostTrackingResponsesModel
+    participant B as AgentOPSMiddleware / AgentOPSBase
+    participant A as TargetAgentAdapter
+    participant T as Target agent
+    participant G as Output middleware
+    U->>W: predict_stream(request)
+    W->>W: iterate_async_sync of apredict_stream
+    W->>B: async for middleware.apredict_stream
+    B->>B: Isolated scope, history, prechecks, memory
+    alt Target has streaming capability
+        B->>A: stream(request, context, resources)
+        A->>T: Native async stream or offloaded sync stream
+        loop Upstream events
+            T-->>B: Output event and optional usage
+            alt Public activity and stream_activity opted in
+                B-->>U: Activity with empty output envelope
+            else Buffered output default
+                B->>B: Collect output, hold content
+            else Explicit passthrough
+                B-->>U: Forward output immediately
+            end
+        end
+    else No streaming capability
+        B->>A: invoke once
+        A->>T: Prediction
+        T-->>B: Final response
+    end
+    B->>G: Redact and check answer plus structured Genie artifact
+    alt Blocked before delivery
+        B-->>U: Filtered completed item only
+    else Accepted
+        B->>B: Metrics, configured persistence, metadata merge
+        opt Buffered output or prediction fallback
+            B-->>U: Checked response.output_item.done events
+        end
+    end
+    Note over B,T: Failures propagate, partial answers are not saved as successful
+    Note over B,W: Close resources and upstream generator, export last usage snapshot

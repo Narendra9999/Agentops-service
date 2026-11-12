@@ -37,8 +37,8 @@ Lakebase/session SDK calls currently remain synchronous and run in the executor.
 This is async compatibility, not a native async database driver migration.
 Use `run_blocking` for legacy blocking integrations; new integrations should
 prefer native awaitable clients. Cancellation cannot roll back an in-flight
-SDK/database operation. Existing streaming guardrail release behavior is
-preserved; this change does not introduce token buffering for legacy streams.
+SDK/database operation. The shared serving wrapper buffers output until postchecks pass by default.
+Direct legacy entrypoints retain their existing delivery policy.
 
 ## Shared clients and usage
 
@@ -111,8 +111,9 @@ normalization remain shared across both paths. The built-in DatabricksStore
 backend has not been migrated to a separate async database driver or schema.
 
 Input blocks prevent invocation. Nonstreaming output blocks replace the answer.
-Streaming output checks run after delivery and flag violations in trace tags;
-they cannot retract delivered tokens. Interrupted streams do not persist partial
+The shared wrapper buffers output until streaming checks pass. Explicit
+`middleware.streaming.output_mode: passthrough` releases output earlier, so its
+checks cannot retract delivered tokens. Output PII redaction forces buffering. Interrupted streams do not persist partial
 answers as completed sessions. A persistence operation already underway may
 complete even if its caller is cancelled.
 
@@ -199,3 +200,25 @@ configuration or AgentObserver is required.
 Configured per-call cost estimates are finalized after MLflow closes model spans,
 so its built-in price lookup cannot silently replace the selected AgentOPS rate
 card. Existing native costs remain untouched; parent spans are not priced.
+
+## Wrapper-owned middleware
+
+The shared `CostTrackingResponsesModel` constructs `AgentOPSMiddleware` during
+model loading. It calls the same async middleware for every target type. The
+supervisor team entrypoint supplies native async target behavior and no longer
+constructs `_GuardedTurn` or calls AgentOPS itself. `TargetAgentAdapter` owns only
+invocation and result conversion. Legacy targets use raw hooks so their public
+lifecycle does not execute a second time. See the
+[request lifecycle and diagrams](agentops-request-lifecycle.md) for the complete
+prediction and streaming paths, delivery configuration and function dependencies.
+
+## Wrapper-owned middleware
+
+The shared `CostTrackingResponsesModel` constructs `AgentOPSMiddleware` during
+model loading. It calls the same async middleware for every target type. The
+supervisor team entrypoint supplies native async target behavior and no longer
+constructs `_GuardedTurn` or calls AgentOPS itself. `TargetAgentAdapter` owns only
+invocation and result conversion. Legacy targets use raw hooks so their public
+lifecycle does not execute a second time. See the
+[request lifecycle and diagrams](agentops-request-lifecycle.md) for the complete
+prediction and streaming paths, delivery configuration and function dependencies.

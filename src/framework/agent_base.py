@@ -15,6 +15,7 @@ from typing import Generator, Optional
 import logging
 import uuid
 import time
+import json
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 
 # Public helpers remain importable here for existing team integrations.
@@ -323,17 +324,36 @@ class AgentOPSBase(AsyncResponsesAgent):
         self._request_context["user_id"] = user_id
         if streaming:
             full_output = []
+            stream_custom = {}
+            stream_usage = None
             async with aclosing(self._aprocess_request_stream(request)) as upstream:
                 async for event in upstream:
+                    payload = event.model_dump(exclude_none=True)
+                    if event.type in {"error", "response.failed", "response.incomplete"}:
+                        raise RuntimeError(payload.get("message", "Target agent stream failed"))
+                    if event.type == "response.in_progress":
+                        # Status is a public target capability, separate from final output.
+                        # Never release a target-supplied response body before checks.
+                        if (request.custom_inputs or {}).get("stream_activity") is True:
+                            activity = (event.custom_outputs or {}).get("activity")
+                            yield ResponsesAgentStreamEvent(type="response.in_progress",
+                                response={"id": "activity", "object": "response", "status": "in_progress", "output": []},
+                                custom_outputs={"activity": activity} if activity else None)
+                        continue
+                    if event.type == "response.output_item.done":
+                        stream_custom.update(event.custom_outputs or {})
+                    envelope = payload.get("response") or {}
+                    stream_usage = payload.get("usage") or envelope.get("usage") or stream_usage
                     if event.type == "response.output_item.done":
                         full_output.append(event.model_dump(exclude_none=True)["item"])
                         event = event.model_copy(update={"custom_outputs": {
                             **self._session_outputs(thread_id, user_id),
                             **(event.custom_outputs or {}),
                         }})
-                    if not (self.guardrails_enabled and self.guardrail_middleware.buffers_output):
+                    if not self._buffers_stream_output():
                         yield event
-            response = ResponsesAgentResponse(output=full_output)
+            response = ResponsesAgentResponse(output=full_output, custom_outputs=stream_custom,
+                **({"usage": stream_usage} if stream_usage is not None else {}))
         else:
             response = await self._aprocess_request(request)
 
@@ -341,13 +361,17 @@ class AgentOPSBase(AsyncResponsesAgent):
         if self.guardrails_enabled:
             response = await self.guardrail_middleware.process_response(response)
             response_text = extract_response_text(response)
-            post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, response_text, self._request_context)
+            # User-visible structured artifacts are checked at the same outer
+            # boundary as answer text, independent of which target produced them.
+            artifact = (response.custom_outputs or {}).get("genie_result")
+            checked_text = response_text + ("\n" + json.dumps(artifact, default=str) if artifact else "")
+            post_result = await call_async_method(self.post_llm_guardrails, "acheck", "check", user_message, checked_text, self._request_context)
             if post_result.get("blocked"):
                 mlflow.update_current_trace(tags={
                     "agentops.guardrail.post_llm.blocked": "true",
                     "agentops.guardrail.post_llm.blocked_by": post_result.get("blocked_by", "unknown"),
                 })
-                if not streaming or self.guardrail_middleware.buffers_output:
+                if not streaming or self._buffers_stream_output():
                     yield self._build_response(
                         post_result.get("message", "Response filtered for safety."),
                         thread_id, user_id,
@@ -360,7 +384,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         # ── Tag with latency + token usage ──
         latency_ms = (time.time() - start_time) * 1000
         self._request_context["latency_ms"] = latency_ms
-        emit_standard_trace_metrics(start_time, self._request_context,
+        self._request_context["trace_tags"] = emit_standard_trace_metrics(start_time, self._request_context,
             extra_tags={"agentops.streaming": "true"} if streaming else None)
 
         # ── Save session history ──
@@ -394,10 +418,13 @@ class AgentOPSBase(AsyncResponsesAgent):
         if uc_err:
             custom_outputs["_uc_error"] = uc_err[:200]
         if response.custom_outputs:
+            merged_tags = {**custom_outputs.get("tags", {}), **response.custom_outputs.get("tags", {})}
             custom_outputs.update(response.custom_outputs)
+            if merged_tags:
+                custom_outputs["tags"] = merged_tags
         response.custom_outputs = custom_outputs
 
-        if not streaming or (self.guardrails_enabled and self.guardrail_middleware.buffers_output):
+        if not streaming or self._buffers_stream_output():
             yield response
 
     @mlflow.trace(name="load_session_history", span_type="RETRIEVER")
@@ -524,11 +551,17 @@ class AgentOPSBase(AsyncResponsesAgent):
             async for event in upstream:
                 yield event
 
-    async def _astream_turn(self, request):
-        native_stream = (
+    def _supports_streaming(self):
+        return (
             type(self)._aprocess_request_stream is not AgentOPSBase._aprocess_request_stream
             or type(self)._process_request_stream is not AgentOPSBase._process_request_stream
         )
+
+    def _buffers_stream_output(self):
+        return self.guardrails_enabled and self.guardrail_middleware.buffers_output
+
+    async def _astream_turn(self, request):
+        native_stream = self._supports_streaming()
         async with self._request_scope():
             async with aclosing(self._run_lifecycle(request, streaming=native_stream)) as lifecycle:
                 async for result in lifecycle:
@@ -538,6 +571,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                                 type="response.output_item.done",
                                 item=item.model_dump(exclude_none=True),
                                 custom_outputs=result.custom_outputs,
+                                **({"usage": result.usage.model_dump(exclude_none=True)} if result.usage else {}),
                             )
                     else:
                         yield result

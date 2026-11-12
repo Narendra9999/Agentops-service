@@ -150,7 +150,8 @@ def load_wrapper(inner):
         module = importlib.import_module("framework.inference.cost_tracking_model")
     wrapper = module.CostTrackingResponsesModel()
     with patch.object(module, "_resolve_inner_model", return_value=inner):
-        wrapper.load_context(MagicMock())
+        from types import SimpleNamespace
+        wrapper.load_context(SimpleNamespace(model_config=getattr(inner, "config", {"guardrails": {"enabled": False}})))
     return wrapper
 
 

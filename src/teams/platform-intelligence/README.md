@@ -474,3 +474,16 @@ and also supports agent identity attributes in historical and memory-tool traces
 The memory graph retains its explicit tool/worker spans, which are independent of
 AgentObserver. Memory, progress events, guardrails and usage tracking remain enabled.
 Paired evaluations respect the configured observer setting.
+
+### Shared middleware ownership
+
+The packaged serving entrypoint is `CostTrackingResponsesModel`. It constructs
+`AgentOPSMiddleware`, which owns history, input/output guardrails, delivery policy,
+metrics and persistence. `agent/Agent.py` configures the supervisor target only,
+and does not construct or call middleware. The shared target adapter awaits its
+native async APIs. Single-agent legacy hooks use the same lifecycle once.
+
+Streaming final output is buffered until checks pass by default. Optional public
+activity requires `custom_inputs.stream_activity: true`; normal Playground
+requests receive completed output items. See
+[request lifecycle diagrams](../../../docs/development/agentops-request-lifecycle.md).

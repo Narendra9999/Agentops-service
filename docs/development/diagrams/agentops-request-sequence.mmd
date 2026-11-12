@@ -1,0 +1,46 @@
+sequenceDiagram
+    autonumber
+    actor U as Client
+    participant L as MLflow loader
+    participant W as CostTrackingResponsesModel
+    participant B as AgentOPSMiddleware / AgentOPSBase
+    participant H as Configured session store
+    participant G as Guardrails / redaction
+    participant A as TargetAgentAdapter
+    participant T as Independent target
+    U->>L: Responses request
+    L->>W: predict(request)
+    W->>W: run_sync(apredict(request))
+    W->>B: await apredict(request)
+    B->>B: Per-request clone, scope, deadline, tags
+    opt Session history enabled
+        B->>H: await history load
+        H-->>B: Prior messages
+    end
+    B->>G: Input redaction and prechecks if enabled
+    alt Input blocked
+        B-->>W: Filtered response, target never called
+    else Accepted
+        opt Shared memory recall enabled
+            B->>H: await user memory recall
+        end
+        B->>A: await invoke(request, context, resources)
+        A->>T: await apredict or offloaded predict
+        Note over A,T: Legacy target uses raw hook, no second lifecycle
+        T-->>A: Answer, artifacts, available usage
+        A-->>B: Normalized ResponsesAgentResponse
+        B->>G: Output redaction and checks, including Genie artifacts
+        alt Output blocked
+            B-->>W: Filtered response
+        else Accepted
+            B->>B: Standard metrics
+            opt Session history enabled
+                B->>H: await save full session
+            end
+            B-->>W: Response with merged metadata
+        end
+    end
+    B->>B: Close request resources
+    W->>W: Export available response usage without another model call
+    W-->>L: ResponsesAgentResponse
+    L-->>U: JSON output array and custom_outputs

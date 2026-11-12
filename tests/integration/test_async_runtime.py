@@ -115,8 +115,9 @@ def test_base_concurrent_turns_isolate_request_context(monkeypatch, wrapped):
         with patch("mlflow.models.set_model"):
             module = importlib.import_module("framework.inference.cost_tracking_model")
         wrapper = module.CostTrackingResponsesModel()
+        from framework.inference.agent_middleware import AgentOPSMiddleware
         wrapper._inner = agent
-        wrapper._inner_is_responses_agent = True
+        wrapper._middleware = AgentOPSMiddleware(agent.config, agent)
         agent = wrapper
 
     async def scenario():
