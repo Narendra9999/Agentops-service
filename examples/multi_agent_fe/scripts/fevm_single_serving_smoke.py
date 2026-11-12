@@ -77,6 +77,12 @@ def main():
                 break
             time.sleep(2)
         assert trace is not None and str(trace.info.state) == 'OK', name
+        trace = client.get_trace(trace.info.trace_id)
+        names = [span.name for span in trace.data.spans]
+        guard_counts = {key: names.count(key) for key in ('pre_llm_check', 'post_llm_check')}
+        assert guard_counts == {'pre_llm_check': 1, 'post_llm_check': 0 if name == 'input_block' else 1}, (name, guard_counts)
+        assert all(span.span_type in {'LLM', 'CHAT_MODEL'} for span in trace.data.spans
+                   if span.attributes.get('mlflow.chat.tokenUsage')), 'Parent spans must not repeat model usage'
         tags = trace.info.tags
         native_usage = json.loads(trace.info.request_metadata.get('mlflow.trace.tokenUsage', '{}'))
         native_cost = json.loads(trace.info.request_metadata.get('mlflow.trace.cost', '{}'))
@@ -92,7 +98,8 @@ def main():
             assert abs(native_cost['total_cost'] - float(tags['agentops.cost_usd'])) <= 0.000001
         report['scenarios'][name] = {'trace_id': trace.info.trace_id, 'state': str(trace.info.state),
             'tokens': tags.get('agentops.tokens.total'), 'cost_usd': tags.get('agentops.cost_usd'), 'status': 'passed',
-            'native_token_usage': native_usage, 'native_cost': native_cost}
+            'native_token_usage': native_usage, 'native_cost': native_cost,
+            'middleware_guard_counts': guard_counts}
         print(json.dumps({'scenario': name, **report['scenarios'][name]}), flush=True)
     out = Path(__file__).resolve().parents[1] / 'validation-results' / 'async-single-serving.json'
     out.parent.mkdir(exist_ok=True)

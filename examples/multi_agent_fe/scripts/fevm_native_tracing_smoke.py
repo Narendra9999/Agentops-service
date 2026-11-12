@@ -82,6 +82,11 @@ def main():
         assert float(tags['agentops.cost_usd']) >= 0
         spans = trace.data.spans
         names = {span.name for span in spans if span.name}
+        guard_counts = {key: sum(span.name == key for span in spans)
+                        for key in ('pre_llm_check', 'post_llm_check')}
+        assert guard_counts == {'pre_llm_check': 1, 'post_llm_check': 1}, (name, guard_counts)
+        assert all(span.span_type in {'LLM', 'CHAT_MODEL'} for span in spans
+                   if span.attributes.get('mlflow.chat.tokenUsage')), 'Parent spans must not repeat model usage'
         workers = names & {'cost_estimation', 'platform_docs'}
         assert workers == expected, (name, workers)
         assert 'supervisor' in names
@@ -98,7 +103,7 @@ def main():
             'Native cost differs from AgentOPS estimate', native_cost, tags['agentops.cost_usd'])
         report['scenarios'][name] = {
             'trace_id': trace_id, 'state': str(trace.info.state), 'workers': sorted(workers),
-            'observer_enabled': False, 'span_count': len(spans), 'span_names': sorted(names),
+            'observer_enabled': False, 'middleware_guard_counts': guard_counts, 'span_count': len(spans), 'span_names': sorted(names),
             'unnamed_span_count': sum(not span.name for span in spans),
             'token_usage': usage, 'native_cost': native_cost, 'event_types': event_types,
             'usage_tags': {key: tags[key] for key in (
