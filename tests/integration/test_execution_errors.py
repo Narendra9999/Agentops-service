@@ -92,3 +92,63 @@ def test_buffered_stream_failure_releases_no_answer():
         assert context.state['execution_stage'] == 'target'
         assert context.state['execution_finalized']
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('stage', ['input_guardrails', 'output_guardrails', 'persistence'])
+def test_non_target_failures_are_classified_at_their_stage(stage):
+    from types import SimpleNamespace
+    async def scenario():
+        model = middleware()
+        context = RequestContext()
+        original = RuntimeError('controlled ' + stage)
+        calls = []
+        async def fail(*args, **kwargs):
+            raise original
+        async def identity(value):
+            return value
+        async def allowed(*args, **kwargs):
+            return {'blocked': False}
+        async def invoke(req, ctx):
+            calls.append(True)
+            return ResponsesAgentResponse(output=[ResponsesAgent.create_text_output_item(text='ok', id='a')])
+        if stage == 'persistence':
+            model.session_store.enabled = True
+            model.session_store.asave_full_session = fail
+        else:
+            model.guardrails_enabled = True
+            model.pre_llm_guardrails = SimpleNamespace(acheck=allowed)
+            model.post_llm_guardrails = SimpleNamespace(acheck=allowed)
+            model.guardrail_middleware = SimpleNamespace(
+                process_request=fail if stage == 'input_guardrails' else identity,
+                process_response=fail if stage == 'output_guardrails' else identity)
+        # Client history avoids a database read; only the intended write is tested.
+        req = ResponsesAgentRequest(input=[{'role': 'user', 'content': 'hello'},
+            {'role': 'user', 'content': 'follow-up'}])
+        with patch('mlflow.update_current_trace'):
+            with pytest.raises(RuntimeError) as caught:
+                await model.execute(req, invoke=invoke, context=context)
+        assert caught.value is original
+        assert len(calls) == (0 if stage == 'input_guardrails' else 1)
+        assert context.state['execution_stage'] == stage
+        assert context.state['execution_outcome'] == 'failed'
+        assert context.state['execution_finalized']
+    asyncio.run(scenario())
+
+
+def test_failure_exports_available_usage_once_without_replaying_inference():
+    async def scenario():
+        model = middleware()
+        context = RequestContext()
+        async def invoke(req, ctx):
+            ctx.state['token_usage_history'] = [{'prompt_tokens': 2, 'completion_tokens': 1,
+                'total_tokens': 3, 'requests': 1, 'cost_usd': .01}]
+            raise RuntimeError('failure after a metered operation')
+        from framework.agent_base import emit_standard_trace_metrics
+        with patch('framework.agent_base.emit_standard_trace_metrics', wraps=emit_standard_trace_metrics) as emit:
+            with patch('mlflow.update_current_trace'):
+                with pytest.raises(RuntimeError):
+                    await model.execute(request(), invoke=invoke, context=context)
+            assert emit.call_count == 1
+        assert context.state['trace_tags']['agentops.tokens.total'] == '3'
+        assert context.state['trace_tags']['agentops.llm_requests'] == '1'
+    asyncio.run(scenario())

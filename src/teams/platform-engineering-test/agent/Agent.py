@@ -335,11 +335,17 @@ class ChatCompletionsModel:
             with self.client.chat.completions.create(model=self.model, messages=prepared,
                 max_tokens=self.rag.max_tokens, temperature=self.rag.temperature,
                 stream=True, stream_options={'include_usage': True}) as chunks:
+                last_usage = None
                 for chunk in chunks:
                     data = chunk.model_dump(exclude_none=True)
                     data['model'] = self.model
-                    if data.get('usage'): self._native_usage(span, data['usage'])
+                    if data.get('usage'):
+                        last_usage = data['usage']
                     yield data
+                # Gateway streams may include cumulative usage snapshots. Publish
+                # only the last one so native metrics match the final response.
+                if last_usage is not None:
+                    self._native_usage(span, last_usage)
             yield {'choices': [], 'custom_outputs': metadata}
 
 
