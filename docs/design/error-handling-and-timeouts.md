@@ -1,6 +1,6 @@
 # AgentOPS error handling, deadlines, and cancellation
 
-Status: implementation proposal. Existing behavior is identified separately below. Scope: shared serving middleware for single agents and supervisors; teams retain orchestration and tool recovery ownership.
+Status: broader implementation proposal. The initial centralized error hook, stage/outcome diagnostics, and best-effort finalizer are implemented; see [validation evidence](../development/error-lifecycle-validation.md). Remaining proposed features are not yet implemented. Existing behavior below describes the baseline reviewed before this change. Scope: shared serving middleware for single agents and supervisors; teams retain orchestration and tool recovery ownership.
 
 ## Design decision
 
