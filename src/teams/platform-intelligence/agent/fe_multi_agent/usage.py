@@ -7,6 +7,7 @@ import threading
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 from framework.observability.token_usage import as_dict, normalize_usage, estimate_cost, usage_tags, export_native_model_usage
+from framework.observability.remote_usage import remote_usage_record, rollup_remote_usage
 
 _agent = ContextVar('agentops_usage_agent', default='unattributed')
 _meter = ContextVar('agentops_usage_meter', default=None)
@@ -86,7 +87,6 @@ class UsageMeter(BaseCallbackHandler):
             self.calls.setdefault(str(run_id), {'agent': agent, 'model': model, 'usage': None})
 
     def observe_remote(self, agent, endpoint, response, invocation_id=None):
-        from framework.observability.remote_usage import remote_usage_record
         # Remote caller supplies a stable invocation ID; object identity is only
         # the fallback for direct integrations without a transport invocation ID.
         record = remote_usage_record(agent, endpoint, response,
@@ -129,7 +129,6 @@ class UsageMeter(BaseCallbackHandler):
                 'unmetered_services': unmetered, 'by_agent_model': list(groups.values()),
                 'source': 'provider_reported', 'scope': 'observed_model_calls',
                 'model_call_ids': call_ids}
-        from framework.observability.remote_usage import rollup_remote_usage
         return rollup_remote_usage(local, workers, local_call_ids=call_ids)
 
 

@@ -217,12 +217,60 @@ class AgentOPSBase(AsyncResponsesAgent):
             from framework.inference.agent_middleware import wrap_target_result
             return wrap_target_result(await invoke(prepared, context))
 
-        # The only scope is resource/deadline ownership, never an agent clone.
-        async with context.scope(self.config.get('middleware', {}).get('timeout_seconds')):
-            async with aclosing(self._run_lifecycle(request, streaming=stream is not None,
-                context=context.state, invoke=normalized_invoke,
-                stream=(lambda req: stream(req, context)) if stream is not None else None)) as lifecycle:
-                yield lifecycle
+        import asyncio
+        state = context.state
+        started = time.time()
+        state.update(execution_outcome="running", execution_stage="preparation")
+        try:
+            # The scope owns resources and deadlines, never an agent clone.
+            async with context.scope(self.config.get('middleware', {}).get('timeout_seconds')):
+                async with aclosing(self._run_lifecycle(request, streaming=stream is not None,
+                    context=state, invoke=normalized_invoke,
+                    stream=(lambda req: stream(req, context)) if stream is not None else None)) as lifecycle:
+                    yield lifecycle
+            if state["execution_outcome"] == "running":
+                state["execution_outcome"] = "success"
+        except (asyncio.CancelledError, GeneratorExit):
+            state["execution_outcome"] = "cancelled"
+            raise
+        except Exception as error:
+            state["execution_outcome"] = "failed"
+            try:
+                await self.process_error(error, context)
+            except Exception:
+                logger.warning("Error diagnostics failed; preserving primary exception", exc_info=False)
+            raise
+        finally:
+            self._finalize_execution(started, state, stream is not None)
+
+    async def process_error(self, error, context):
+        """Classify without exposing provider bodies or retrying target execution."""
+        from framework.inference.errors import classify_error
+        context.state["error_code"] = classify_error(error)
+
+    def _finalize_execution(self, started, state, streaming):
+        """Best-effort, once-only telemetry for every lifecycle outcome."""
+        if state.get("execution_finalized"):
+            return
+        state["execution_finalized"] = True
+        try:
+            # Successful paths already emitted usage before building custom_outputs.
+            if not state.get("trace_tags"):
+                state["trace_tags"] = emit_standard_trace_metrics(started, state,
+                    status=state["execution_outcome"],
+                    extra_tags={"agentops.streaming": str(streaming).lower()})
+            tags = {
+                "agentops.status": state["execution_outcome"],
+                "agentops.execution.stage": state.get("execution_stage", "unknown"),
+                "agentops.latency_ms": str(round((time.time() - started) * 1000, 2)),
+            }
+            if state.get("error_code"):
+                tags["agentops.error.code"] = state["error_code"]
+            if state["execution_outcome"] in {"failed", "cancelled"}:
+                tags["agentops.usage.status"] = "partial"
+            mlflow.update_current_trace(tags=tags)
+        except Exception:
+            logger.warning("Execution finalization telemetry failed", exc_info=False)
 
     async def execute(self, request, *, invoke, context=None):
         """Run one prediction callback inside the shared middleware lifecycle."""
@@ -283,6 +331,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 "agentops.session.source": "client",
             })
 
+        state["execution_stage"] = "input_guardrails"
         if self.guardrails_enabled:
             request = await self.guardrail_middleware.process_request(request)
             messages = request.model_dump(exclude_none=True)["input"]
@@ -299,6 +348,7 @@ class AgentOPSBase(AsyncResponsesAgent):
             pre_result = await call_async_method(self.pre_llm_guardrails, "acheck", "check",
                 user_message, conversation_context=conversation_context)
             if pre_result.get("blocked"):
+                state["execution_outcome"] = "rejected"
                 mlflow.update_current_trace(tags={
                     "agentops.guardrail.pre_llm.blocked": "true",
                     "agentops.guardrail.pre_llm.blocked_by": pre_result.get("blocked_by", "unknown"),
@@ -316,6 +366,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         # ── Recall long-term user memories ──
         # If user_id is provided, search Lakebase for relevant facts about this user
         # and pass them to the agent in explicit request state.
+        state["execution_stage"] = "memory"
         if self.session_store.memory_enabled and user_id and user_message:
             await self._arecall_long_term_memory(user_id, user_message, **context_args)
 
@@ -323,6 +374,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         # Callbacks can populate context.state for shared postchecks.
         state["thread_id"] = thread_id
         state["user_id"] = user_id
+        state["execution_stage"] = "target"
         if streaming:
             full_output = []
             stream_custom = {}
@@ -358,6 +410,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         else:
             response = await invoke(request)
 
+        state["execution_stage"] = "output_guardrails"
         # ── Post-LLM Guardrails ──
         if self.guardrails_enabled:
             response = await self.guardrail_middleware.process_response(response)
@@ -373,6 +426,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                     "agentops.guardrail.post_llm.blocked_by": post_result.get("blocked_by", "unknown"),
                 })
                 if not streaming or self._buffers_stream_output():
+                    state["execution_outcome"] = "rejected"
                     yield self._build_response(
                         post_result.get("message", "Response filtered for safety."),
                         thread_id, user_id, **context_args,
@@ -388,6 +442,7 @@ class AgentOPSBase(AsyncResponsesAgent):
         state["trace_tags"] = emit_standard_trace_metrics(start_time, state,
             extra_tags={"agentops.streaming": "true"} if streaming else None)
 
+        state["execution_stage"] = "persistence"
         # ── Save session history ──
         if self.session_store.enabled:
             response_text = extract_response_text(response)
@@ -425,6 +480,7 @@ class AgentOPSBase(AsyncResponsesAgent):
                 custom_outputs["tags"] = merged_tags
         response.custom_outputs = custom_outputs
 
+        state["execution_stage"] = "completed"
         if not streaming or self._buffers_stream_output():
             yield response
 

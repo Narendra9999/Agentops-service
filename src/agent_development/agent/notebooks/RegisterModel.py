@@ -339,7 +339,9 @@ if vs_primary.get("index"):
 
 if agent_config.get("multi_agent") and experiment_id:
     agent_config.setdefault("tracing", {})["experiment_id"] = str(experiment_id)
-runtime_config = "/tmp/runtime_config.yaml"
+import tempfile
+# Per-run private directory avoids collisions on reused serverless workers.
+runtime_config = os.path.join(tempfile.mkdtemp(prefix="agentops-register-"), "runtime_config.yaml")
 with open(runtime_config, "w") as f:
     yaml.dump(agent_config, f, default_flow_style=False)
 
