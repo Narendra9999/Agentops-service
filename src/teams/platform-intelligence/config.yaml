@@ -66,6 +66,9 @@ session_history:
 long_term_memory:
   enabled: false
 tracing:
+  instrumentation:
+    enabled: true
+    integration: langchain
   # Created/resolved by registration; the generated ID is passed to serving and eval.
   experiment_name: /Shared/agentops-platform-intelligence
   uc_trace_storage_enabled: false

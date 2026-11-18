@@ -4,6 +4,9 @@ agent:
     AgentOPS
   version: 1.0.0
 tracing:
+  instrumentation:
+    enabled: true
+    integration: openai
   exporter: experiment
   experiment_name: /Shared/agentops-platform-single-validation
   uc_trace_storage_enabled: false

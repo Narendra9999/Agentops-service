@@ -93,7 +93,11 @@ class CostTrackingResponsesModel(AsyncResponsesAgent):
     """
 
     def load_context(self, context):
-        self._inner = _resolve_inner_model(getattr(context, "model_config", None))
+        from framework.observability.tracing import configure_native_instrumentation
+        config = getattr(context, "model_config", None)
+        if isinstance(config, dict):
+            configure_native_instrumentation(config)
+        self._inner = _resolve_inner_model(config)
         if hasattr(self._inner, "load_context"):
             self._inner.load_context(context)
         config = getattr(context, "model_config", None)

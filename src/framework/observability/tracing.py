@@ -19,3 +19,51 @@ def configure_trace_destination(config):
     if exporter != "experiment":
         raise ValueError("tracing.exporter must be experiment or inference_table")
     use_experiment_destination(os.getenv("MLFLOW_EXPERIMENT_ID") or tracing.get("experiment_id"))
+
+
+def configure_native_instrumentation(config):
+    """Activate a supported native tracer before importing/loading the target.
+
+    Autolog patches are process-wide. Select one integration at the model runtime
+    boundary, not per request; omit this block to preserve external instrumentation.
+    """
+    import importlib
+    options = (config.get("tracing") or {}).get("instrumentation")
+    if options is None:
+        return
+    if not isinstance(options, dict) or set(options) - {"enabled", "integration"}:
+        raise ValueError("tracing.instrumentation accepts enabled and integration")
+    enabled = options.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("tracing.instrumentation.enabled must be boolean")
+    integration = options.get("integration")
+    if integration not in {"langchain", "openai"}:
+        raise ValueError("tracing.instrumentation.integration must be langchain or openai")
+    # Fail model loading rather than silently advertise tracing that is unavailable.
+    module = importlib.import_module("mlflow." + integration)
+    module.autolog(disable=not enabled, log_traces=enabled, silent=False)
+    if enabled and integration == "openai":
+        configure_openai_cost_fallback(config)
+
+
+def configure_openai_cost_fallback(config):
+    """Price native model spans using the same rate card as response accounting."""
+    model = (config.get("llm") or {}).get("endpoint")
+    if not model:
+        return
+    from mlflow.tracing.config import get_config
+    import mlflow
+    from framework.observability.usage_tracking import TokenTracker
+    from framework.observability.token_usage import set_native_cost_fallback
+    if TokenTracker is None:
+        return
+    rates = {model: TokenTracker(model_name=model).pricing_per_million()}
+    def fill_missing_cost(span):
+        set_native_cost_fallback(span, rates)
+    processors = list(get_config().span_processors)
+    # Model loading may run more than once in a process. Replace only our own
+    # processor for this model, preserving external redaction/cost processors.
+    marker = "agentops.openai.cost." + model
+    fill_missing_cost.__name__ = marker
+    processors = [p for p in processors if getattr(p, "__name__", "") != marker]
+    mlflow.tracing.configure(span_processors=[*processors, fill_missing_cost])

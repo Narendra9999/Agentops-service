@@ -30,7 +30,6 @@ class ChatModel(SupervisorAgent):
         self.settings = Settings(**values)
         self.settings.validate()
         super().load_context(context)
-        mlflow.langchain.autolog()
 
 
 mlflow.models.set_model(ChatModel())
