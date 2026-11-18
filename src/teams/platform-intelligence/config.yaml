@@ -27,7 +27,11 @@ multi_agent:
         docs_index: fevm_catalog_naren.agentops_multi.platform_docs_index
         platform_model: system.ai.gpt-oss-120b
     cost_estimation:
-      description: Analyze costs and estimate spending through the existing Genie agent.
+      description: >-
+        Call the existing Genie Cost Intelligence agent for cost, pricing, estimates,
+        or missing inputs for an estimate, including incomplete cost requests.
+        Supply a self-contained task with workload details and relevant labeled memory.
+        Call at most once per turn. Do not replace this agent with your own checklist.
       transport: genie
       space_id: 01f1d6efcecd1620b04cf487817675b7
       mode: STANDARD

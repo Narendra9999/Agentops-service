@@ -128,3 +128,16 @@ def test_platform_team_configuration_loads_settings_and_instructions(monkeypatch
     cfg['multi_agent']['supervisor']['instructions']='../outside.md'
     with pytest.raises(ValueError,match='inside the team directory'):
         agent.load_context(SimpleNamespace(model_config=cfg))
+
+
+def test_migrated_instructions_preserve_active_prompt_policies():
+    import json
+    from pathlib import Path
+    team=Path(__file__).resolve().parents[2]/'src/teams/platform-intelligence'
+    active=json.loads((team/'configs/prompts.json').read_text())['prompts']['supervisor']['template']
+    expected=active.replace('platform_knowledge(task)', 'platform_docs(task)').replace(
+        'platform_docs is an internal worker identifier, not a tool name.',
+        'Worker tool names match the configured worker identifiers.').replace(
+        'which invokes the embedded platform_docs worker.', 'which invokes the configured platform_docs worker.')
+    assert (team/'configs/supervisor.md').read_text().strip()==expected.strip()
+    assert 'MANDATORY COST DELEGATION' in expected and 'COST EVIDENCE POLICY' in expected
