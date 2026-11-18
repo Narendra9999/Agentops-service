@@ -18,14 +18,31 @@ def register_model(settings, model_name, project_root, runtime_file, dependency_
     requirements = [line for line in lock.read_text().splitlines()
                     if line and not line.startswith(("#", " ", "--"))]
     # Resource declarations reference existing workers; no worker is registered.
-    resources = ([DatabricksVectorSearchIndex(index_name=settings.docs_index)] if settings.platform_mode=='in_process' else [DatabricksServingEndpoint(endpoint_name=settings.platform_endpoint)])
-    if settings.cost_endpoint:
-        resources.append(DatabricksServingEndpoint(endpoint_name=settings.cost_endpoint))
+    if settings.workers:
+        resources = []
+        local_models = []
+        for spec in settings.workers.values():
+            if spec['transport'] == 'serving_endpoint':
+                resources.append(DatabricksServingEndpoint(endpoint_name=spec['endpoint_name']))
+            elif spec['transport'] == 'genie':
+                resources.append(DatabricksGenieSpace(genie_space_id=spec['space_id']))
+            elif spec['transport'] == 'in_process':
+                options = spec['settings']
+                resources.append(DatabricksVectorSearchIndex(index_name=options['docs_index']))
+                local_models.append(options['platform_model'])
+        if settings.model_transport == 'model_serving':
+            resources.extend(DatabricksServingEndpoint(endpoint_name=model)
+                             for model in [settings.supervisor_model, *local_models])
     else:
-        resources.append(DatabricksGenieSpace(genie_space_id=settings.genie_space_id))
-    if settings.model_transport == "model_serving":
-        resources.append(DatabricksServingEndpoint(endpoint_name=settings.supervisor_model))
-        if settings.platform_mode=='in_process':resources.append(DatabricksServingEndpoint(endpoint_name=settings.platform_model))
+        resources = ([DatabricksVectorSearchIndex(index_name=settings.docs_index)]
+                     if settings.platform_mode == 'in_process'
+                     else [DatabricksServingEndpoint(endpoint_name=settings.platform_endpoint)])
+        resources.append(DatabricksServingEndpoint(endpoint_name=settings.cost_endpoint)
+                         if settings.cost_endpoint else DatabricksGenieSpace(genie_space_id=settings.genie_space_id))
+        if settings.model_transport == 'model_serving':
+            resources.append(DatabricksServingEndpoint(endpoint_name=settings.supervisor_model))
+            if settings.platform_mode == 'in_process':
+                resources.append(DatabricksServingEndpoint(endpoint_name=settings.platform_model))
     # Model services are UC securables, not serving-endpoint resources. Gateway
     # EXECUTE grants are provisioned explicitly for the dedicated OAuth identity.
     package = Path(__file__).resolve().parent

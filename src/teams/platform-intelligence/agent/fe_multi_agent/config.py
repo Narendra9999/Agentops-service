@@ -4,6 +4,8 @@ import os
 
 @dataclass(frozen=True)
 class Settings:
+    workers: dict = field(default_factory=dict)
+    supervisor_instructions: str = ""
     supervisor_model: str = "system.ai.claude-sonnet-4-6"
     model_transport: str = "ai_gateway"
     genie_space_id: str = ""
@@ -39,7 +41,7 @@ class Settings:
                     value = value.lower() == "true"
                 elif isinstance(field.default, int):
                     value = int(value)
-                elif name == "usage_rates_per_million":
+                elif name in {"usage_rates_per_million", "workers"}:
                     import json
                     value = json.loads(value)
                 values[name] = value
@@ -52,23 +54,34 @@ class Settings:
             raise ValueError("model_transport must be ai_gateway or model_serving")
         if self.model_transport == "ai_gateway":
             models=[self.supervisor_model]+([self.platform_model] if self.platform_mode=='in_process' else [])
+            models += [spec.get('settings', {}).get('platform_model', '') for spec in self.workers.values()
+                       if spec.get('transport') == 'in_process']
             for model in models:
                 if len(model.split('.')) != 3 or '/' in model:
                     raise ValueError("AI Gateway models must use catalog.schema.model_service names")
-        if self.platform_mode not in {'remote','in_process'}:
-            raise ValueError('platform_mode must be remote or in_process')
-        if self.platform_mode == 'in_process' and not self.docs_index:
-            raise ValueError('Configure docs_index for in-process retrieval')
-        if self.memory_enabled and (not self.memory_endpoint or not 1 <= self.memory_ttl_days <= 365):
-            raise ValueError('Configure memory_endpoint and memory_ttl_days (1-365)')
-        for name in (("platform_endpoint", "prompt_manifest") if self.platform_mode == 'remote' else ("prompt_manifest",)):
-            value = getattr(self, name)
-            if not value or "REQUIRED" in value:
-                raise ValueError(f"Configure FE_MULTI_{name.upper()}")
-        if not self.cost_endpoint and (not self.genie_space_id or "REQUIRED" in self.genie_space_id):
-            raise ValueError("Configure FE_MULTI_GENIE_SPACE_ID or FE_MULTI_COST_ENDPOINT")
-        for endpoint in (self.platform_endpoint, self.cost_endpoint):
-            if endpoint and ("/" in endpoint or endpoint.startswith("http")):
-                raise ValueError("Worker bindings must be endpoint names, not URLs")
+        if self.workers:
+            from framework.orchestration.config import validate_supervisor
+            validate_supervisor({'pattern': 'supervisor', 'implementation': 'langgraph',
+                                 'supervisor': {'model': self.supervisor_model}, 'workers': self.workers})
+            if not self.prompt_manifest:
+                raise ValueError('Configure prompt_manifest')
+            if self.memory_enabled and (not self.memory_endpoint or not 1 <= self.memory_ttl_days <= 365):
+                raise ValueError('Configure memory_endpoint and memory_ttl_days (1-365)')
+        else:
+            if self.platform_mode not in {'remote','in_process'}:
+                raise ValueError('platform_mode must be remote or in_process')
+            if self.platform_mode == 'in_process' and not self.docs_index:
+                raise ValueError('Configure docs_index for in-process retrieval')
+            if self.memory_enabled and (not self.memory_endpoint or not 1 <= self.memory_ttl_days <= 365):
+                raise ValueError('Configure memory_endpoint and memory_ttl_days (1-365)')
+            for name in (("platform_endpoint", "prompt_manifest") if self.platform_mode == 'remote' else ("prompt_manifest",)):
+                value = getattr(self, name)
+                if not value or "REQUIRED" in value:
+                    raise ValueError(f"Configure FE_MULTI_{name.upper()}")
+            if not self.cost_endpoint and (not self.genie_space_id or "REQUIRED" in self.genie_space_id):
+                raise ValueError("Configure FE_MULTI_GENIE_SPACE_ID or FE_MULTI_COST_ENDPOINT")
+            for endpoint in (self.platform_endpoint, self.cost_endpoint):
+                if endpoint and ("/" in endpoint or endpoint.startswith("http")):
+                    raise ValueError("Worker bindings must be endpoint names, not URLs")
         if self.max_steps < 1:
             raise ValueError("max_steps must be positive")

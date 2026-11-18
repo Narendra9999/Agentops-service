@@ -11,39 +11,34 @@ llm:
   endpoint: system.ai.claude-sonnet-4-6
   api: ai_gateway
 multi_agent:
-  pattern: langgraph_supervisor
+  pattern: supervisor
+  implementation: langgraph
   ownership: customer
+  supervisor:
+    model: system.ai.claude-sonnet-4-6
+    api: ai_gateway
+    instructions: configs/supervisor.md
+  workers:
+    platform_docs:
+      description: Answer Databricks platform engineering questions using documentation evidence.
+      transport: in_process
+      implementation: platform_knowledge
+      settings:
+        docs_index: fevm_catalog_naren.agentops_multi.platform_docs_index
+        platform_model: system.ai.gpt-oss-120b
+    cost_estimation:
+      description: Analyze costs and estimate spending through the existing Genie agent.
+      transport: genie
+      space_id: 01f1d6efcecd1620b04cf487817675b7
+      mode: STANDARD
+      usage_coverage: unavailable
   settings:
-    genie_space_id: 01f1d6efcecd1620b04cf487817675b7
-    # Native LangGraph/MLflow spans provide the execution tree.
     observer_enabled: false
     max_steps: 60
-    platform_endpoint: ''
-    cost_endpoint: ''
-    platform_mode: in_process
-    docs_index: fevm_catalog_naren.agentops_multi.platform_docs_index
-    platform_model: system.ai.gpt-oss-120b
     memory_enabled: true
-    # Playground/direct requests can query workers without accessing persistent memory.
-    # A supplied context must always pass signature/expiry/message verification.
     unsigned_context_policy: stateless
     memory_endpoint: projects/fe-agentops-multi/branches/production/endpoints/primary
     memory_ttl_days: 90
-  agents:
-    supervisor:
-      role: supervisor
-    platform_docs:
-      role: worker
-      display_name: Platform knowledge
-      transport: in_process
-      binding: settings.docs_index
-    cost_estimation:
-      role: worker
-      display_name: Cost intelligence
-      mode: STANDARD
-      usage_coverage: unavailable
-      transport: genie_agent
-      binding: settings.genie_space_id
 guardrails:
   enabled: true
   pre_llm:
@@ -72,7 +67,7 @@ tracing:
   uc_trace_storage_enabled: false
   default_tags:
     agentops.system_id: platform-intelligence
-    agentops.pattern: langgraph_supervisor
+    agentops.pattern: supervisor
 deployment:
   environment_vars:
     # Explicit FEVM runtime identity; provision/rebind this and its grants per workspace.
@@ -99,30 +94,30 @@ model:
   pip_dependencies_file: configs/requirements.lock
   resources:
   - type: vector_search_index
-    name_from: multi_agent.settings.docs_index
+    name_from: multi_agent.workers.platform_docs.settings.docs_index
     when:
-      multi_agent.settings.platform_mode: in_process
+      multi_agent.workers.platform_docs.transport: in_process
   - type: serving_endpoint
-    name_from: multi_agent.settings.platform_endpoint
+    name_from: multi_agent.workers.platform_docs.endpoint_name
     when:
-      multi_agent.settings.platform_mode: remote
+      multi_agent.workers.platform_docs.transport: serving_endpoint
   - type: genie_space
-    name_from: multi_agent.settings.genie_space_id
+    name_from: multi_agent.workers.cost_estimation.space_id
     when:
-      multi_agent.settings.cost_endpoint: ''
+      multi_agent.workers.cost_estimation.transport: genie
   - type: serving_endpoint
-    name_from: multi_agent.settings.cost_endpoint
-    when_not:
-      multi_agent.settings.cost_endpoint: ''
-  - type: serving_endpoint
-    name_from: llm.endpoint
+    name_from: multi_agent.workers.cost_estimation.endpoint_name
     when:
-      llm.api: model_serving
+      multi_agent.workers.cost_estimation.transport: serving_endpoint
   - type: serving_endpoint
-    name_from: multi_agent.settings.platform_model
+    name_from: multi_agent.supervisor.model
     when:
-      llm.api: model_serving
-      multi_agent.settings.platform_mode: in_process
+      multi_agent.supervisor.api: model_serving
+  - type: serving_endpoint
+    name_from: multi_agent.workers.platform_docs.settings.platform_model
+    when:
+      multi_agent.supervisor.api: model_serving
+      multi_agent.workers.platform_docs.transport: in_process
 
 evaluation:
   custom_scorers:

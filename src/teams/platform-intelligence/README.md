@@ -23,7 +23,7 @@ flowchart TD
     G --> S[Supervisor: Claude Sonnet 4.6]
     S -->|list files first| M[(Lakebase user memory)]
     S -->|read / write / delete tools| M
-    S -->|platform_knowledge| K[In-process Platform knowledge: GPT-OSS]
+    S -->|platform_docs| K[In-process Platform knowledge: GPT-OSS]
     K --> V[Existing Databricks Docs Vector Search index]
     S -->|cost_estimation| C[Existing Genie: Cost intelligence]
     K --> S
@@ -159,8 +159,8 @@ Agent.py: ChatModel
   -> POST /api/2.0/genie/agents/{space_id}/responses
 ```
 
-With `cost_endpoint` empty, `build_graph()` binds the configured `genie_space_id`
-to `ExistingGenieWorker`. The named tool declaration supplies the model's tool
+With `workers.cost_estimation.transport: genie`, `build_graph()` binds the configured
+`workers.cost_estimation.space_id` to `ExistingGenieWorker`. The named tool declaration supplies the model's tool
 schema; the graph dispatcher performs the actual worker invocation. The transport
 uses `execution_mode: STANDARD` in agent mode and requests visualization output.
 It does not silently fall back to classic Genie chat. Genie itself is an existing
@@ -171,13 +171,14 @@ workspace resource and is not packaged or deployed with this model.
 - `memory_graph.py`: supervisor model tool calls; search is mandatory before other tools.
 - `memory.py`: scoped persistence, expiry, evidence validation and signed context verification.
 - `platform_worker.py`: in-process prebuilt LangGraph agent with `retrieve_platform_docs`.
-- `configs/prompts.json`: immutable, hash-verified supervisor prompt artifact.
-- `config.yaml`: `platform_mode: in_process`, index/model references and memory settings.
+- `configs/supervisor.md`: supervisor instructions selected by configuration.
+- `configs/prompts.json`: pinned prompt fallback when no instructions file is selected.
+- `config.yaml`: reusable supervisor schema, worker transports, index/model references and memory settings.
 
-Set `platform_mode: remote` and `platform_endpoint` to reuse a deployed knowledge
-ResponsesAgent instead. For cost, set `cost_endpoint` to use an existing
-ResponsesAgent endpoint; otherwise the existing `genie_space_id` is used. Worker
-models are customer-owned when invoked remotely.
+Set `workers.platform_docs.transport: serving_endpoint` and its `endpoint_name` to
+reuse a deployed knowledge ResponsesAgent. For cost, use the same transport and
+`endpoint_name` to call an existing cost worker endpoint; `transport: genie` uses
+`space_id` directly. See [the reusable supervisor guide](../../../../docs/design/reusable-supervisor.md).
 
 Default model services are `system.ai.claude-sonnet-4-6` and
 `system.ai.gpt-oss-120b` through `/ai-gateway/mlflow/v1`. Existing Vector Search

@@ -72,6 +72,8 @@ class SupervisorAgent(AsyncResponsesAgent):
             raise ValueError("A final user message is required")
         turn_settings, application_context, memory_mode = resolve_memory_context(
             self.settings, request.custom_inputs, messages)
+        if self.settings.supervisor_instructions:
+            prompts = {**prompts, 'supervisor': self.settings.supervisor_instructions}
         if memory_mode == 'stateless':
             prompts = {**prompts, 'supervisor': prompts['supervisor'] +
                 '\nThis request has no authenticated memory context. Persistent memory and '
