@@ -1,0 +1,264 @@
+{
+  "implementation_commit": "a84cacf",
+  "branch": "feat/platform-intelligence-supervisor",
+  "local_checks": {
+    "integration_tests": 140,
+    "team_resource_tests": 7
+  },
+  "isolated_native_toggle_tests": {
+    "experiment_id": "3116421550757936",
+    "scenarios": [
+      {
+        "integration": "openai",
+        "enabled": true,
+        "failure_injected": false,
+        "trace_id": "tr-ad4d1ea18b845e7a5534fd1f1fa75744",
+        "child_spans": 1,
+        "error_spans": 0,
+        "status": "passed"
+      },
+      {
+        "integration": "openai",
+        "enabled": true,
+        "failure_injected": true,
+        "trace_id": "tr-6d697f8e422a09401ff16437224b064e",
+        "child_spans": 1,
+        "error_spans": 1,
+        "status": "passed"
+      },
+      {
+        "integration": "openai",
+        "enabled": false,
+        "failure_injected": false,
+        "trace_id": "tr-26892dcb6205c28ca0743e82493ebd3c",
+        "child_spans": 0,
+        "error_spans": 0,
+        "status": "passed"
+      },
+      {
+        "integration": "openai",
+        "enabled": false,
+        "failure_injected": true,
+        "trace_id": "tr-ca7c3832146fb2e66d495940be5712dd",
+        "child_spans": 0,
+        "error_spans": 0,
+        "status": "passed"
+      },
+      {
+        "integration": "langchain",
+        "enabled": true,
+        "failure_injected": false,
+        "trace_id": "tr-e3e881a7bcaccf9eb791f7b53825876e",
+        "child_spans": 1,
+        "error_spans": 0,
+        "status": "passed"
+      },
+      {
+        "integration": "langchain",
+        "enabled": true,
+        "failure_injected": true,
+        "trace_id": "tr-dcf5fe0e1a66d2ed5eabed4a67a272b6",
+        "child_spans": 1,
+        "error_spans": 1,
+        "status": "passed"
+      },
+      {
+        "integration": "langchain",
+        "enabled": false,
+        "failure_injected": false,
+        "trace_id": "tr-15476b31420ebe065938e7ee9764154e",
+        "child_spans": 0,
+        "error_spans": 0,
+        "status": "passed"
+      },
+      {
+        "integration": "langchain",
+        "enabled": false,
+        "failure_injected": true,
+        "trace_id": "tr-5b3daad5e077f715043064f2ac31ea97",
+        "child_spans": 0,
+        "error_spans": 0,
+        "status": "passed"
+      }
+    ],
+    "run_id": 1099168886023276,
+    "run_page_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/275582506282706/run/1099168886023276"
+  },
+  "live_supervisor": {
+    "scenarios": [
+      {
+        "endpoint": "fe-platform-intelligence",
+        "version": "20",
+        "scenario": "platform_prediction",
+        "trace_id": "tr-4867e6e769c64fe2c4765b29525887c8",
+        "native_model_spans": 7,
+        "guardrail_spans": {
+          "pre_llm_check": 1,
+          "post_llm_check": 1
+        },
+        "tokens": 28778,
+        "agentops_cost_usd": "0.06046500",
+        "native_cost": {
+          "input_cost": 0.036307,
+          "output_cost": 0.024158,
+          "total_cost": 0.06046499999999999
+        },
+        "cost_estimates_match": true,
+        "status": "passed"
+      },
+      {
+        "endpoint": "fe-platform-intelligence",
+        "version": "20",
+        "scenario": "platform_stream",
+        "trace_id": "tr-6c01757c460666690e9ceda7b1081f76",
+        "native_model_spans": 9,
+        "guardrail_spans": {
+          "pre_llm_check": 1,
+          "post_llm_check": 1
+        },
+        "tokens": 33023,
+        "agentops_cost_usd": "0.05892600",
+        "native_cost": {
+          "input_cost": 0.040855,
+          "output_cost": 0.018071,
+          "total_cost": 0.058926
+        },
+        "cost_estimates_match": true,
+        "status": "passed"
+      },
+      {
+        "endpoint": "fe-platform-intelligence",
+        "version": "20",
+        "scenario": "cost_stream",
+        "trace_id": "tr-3dea37da7cb6c5ee17f32f95fedfc592",
+        "native_model_spans": 2,
+        "guardrail_spans": {
+          "pre_llm_check": 1,
+          "post_llm_check": 1
+        },
+        "tokens": 5029,
+        "agentops_cost_usd": "0.02160300",
+        "native_cost": {
+          "input_cost": 0.013458,
+          "output_cost": 0.008145,
+          "total_cost": 0.021603
+        },
+        "cost_estimates_match": true,
+        "status": "passed"
+      }
+    ],
+    "run_id": 788666634529684,
+    "run_page_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/731888306596166/run/788666634529684"
+  },
+  "live_single_agent": {
+    "scenarios": [
+      {
+        "endpoint": "fe-platform-single-validation",
+        "version": "16",
+        "scenario": "platform_prediction",
+        "trace_id": "tr-3ef83d39467cd702f71557f16a18da0a",
+        "native_model_spans": 1,
+        "guardrail_spans": {
+          "pre_llm_check": 1,
+          "post_llm_check": 1
+        },
+        "tokens": 3077,
+        "agentops_cost_usd": "0.003553",
+        "native_cost": {
+          "input_cost": 0.00036137409,
+          "output_cost": 0.00040077996,
+          "total_cost": 0.0007621540499999999
+        },
+        "cost_estimates_match": false,
+        "status": "passed"
+      },
+      {
+        "endpoint": "fe-platform-single-validation",
+        "version": "16",
+        "scenario": "platform_stream",
+        "trace_id": "tr-5da9ae64fbc5a2267071072a0166d744",
+        "native_model_spans": 1,
+        "guardrail_spans": {
+          "pre_llm_check": 1,
+          "post_llm_check": 1
+        },
+        "tokens": 2137,
+        "agentops_cost_usd": "0.002495",
+        "native_cost": {
+          "input_cost": 0.00023806587000000003,
+          "output_cost": 0.0003299835,
+          "total_cost": 0.00056804937
+        },
+        "cost_estimates_match": false,
+        "status": "passed"
+      }
+    ],
+    "run_id": 694369424656823,
+    "run_page_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/1011181759735213/run/694369424656823"
+  },
+  "pipelines": {
+    "single": {
+      "run_id": 776806651287589,
+      "run_page_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/180098491824601/run/776806651287589",
+      "result_state": "SUCCESS",
+      "pre": {
+        "gate_passed": true,
+        "quality_passed": true,
+        "guardrail_accuracy": 1.0,
+        "quality_scores": {
+          "platform_evidence/mean": 1.0,
+          "correctness/mean": 1.0,
+          "relevance_to_query/mean": 1.0,
+          "safety/mean": 1.0
+        },
+        "evaluation_id": "b2ab7739-8d6d-4da7-a76c-60ef387167dd"
+      },
+      "post": {
+        "passed": true,
+        "quality_passed": true,
+        "quality_scores": {
+          "platform_evidence/mean": 1.0,
+          "correctness/mean": 1.0,
+          "relevance_to_query/mean": 1.0,
+          "safety/mean": 1.0
+        },
+        "guardrail_accuracy": 1.0,
+        "evaluation_id": "7088c7d3-bf14-43a1-86ba-6d94a316cd94"
+      }
+    },
+    "supervisor": {
+      "run_id": 528791539956287,
+      "run_page_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/701419594686647/run/528791539956287",
+      "result_state": "SUCCESS",
+      "pre": {
+        "gate_passed": true,
+        "quality_passed": true,
+        "guardrail_accuracy": 1.0,
+        "quality_scores": {
+          "cost_grounding/mean": 1.0,
+          "platform_evidence/mean": 1.0,
+          "correctness/mean": 1.0,
+          "relevance_to_query/mean": 1.0,
+          "safety/mean": 1.0,
+          "routing/mean": 1.0
+        },
+        "evaluation_id": "45737556-99bc-4a45-811a-18922a9d3691"
+      },
+      "post": {
+        "passed": true,
+        "quality_passed": true,
+        "quality_scores": {
+          "cost_grounding/mean": 1.0,
+          "platform_evidence/mean": 1.0,
+          "correctness/mean": 1.0,
+          "relevance_to_query/mean": 1.0,
+          "safety/mean": 1.0,
+          "routing/mean": 1.0
+        },
+        "guardrail_accuracy": 1.0,
+        "evaluation_id": "e9131508-0d5d-4fae-b317-a7d8e523318a"
+      }
+    }
+  },
+  "known_gap": "Single-agent AgentOPS cost tags use a different rate card from native MLflow cost estimates. Tokens match; both costs are retained, not treated as billing records. Genie internal usage remains unavailable."
+}

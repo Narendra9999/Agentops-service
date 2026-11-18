@@ -22,3 +22,7 @@ Supported internal failures appear on native child spans. A failure recovered by
 `tests/integration/test_native_instrumentation.py` checks configuration validation, enabled/disabled calls, preservation of external instrumentation when omitted, and initialization before customer code import/load. Existing adapter tests verify that cumulative stream usage is accounted once.
 
 `examples/multi_agent_fe/scripts/validate_native_instrumentation.py` runs eight isolated serverless scenarios: each integration enabled/disabled, each with successful/handled-failure execution. Its mocked HTTP transport injects errors without modifying or disrupting deployed worker endpoints. Real deployed single-agent and supervisor requests are validated separately after the original pipeline quality gates and endpoint rollout.
+
+## Single-agent test fixture
+
+`platform-engineering-test/agent/Agent.py` contains the original `ChatModel` and a plain `ChatCompletionsModel` test target. Configuration selects only `inference.target_class: ChatCompletionsModel`. That target reuses the original class's retrieval/preparation helpers; AgentOPS does not run both public agent lifecycles. Two classes in one entry file are test scaffolding, not a customer requirement. A customer can expose one target class and select its protocol in configuration.

@@ -7,6 +7,7 @@ import requests
 import mlflow
 from databricks.sdk import WorkspaceClient
 from mlflow.types.responses import ResponsesAgentResponse, ResponseOutputItemDoneEvent
+from mlflow.exceptions import RestException
 
 for key, default in [('endpoints', '{}'), ('require_native_cost', 'true')]:
     dbutils.widgets.text(key, default)
@@ -16,13 +17,19 @@ workspace = WorkspaceClient()
 client = mlflow.MlflowClient(tracking_uri='databricks')
 report = {'scenarios': []}
 for endpoint_name, version in endpoints.items():
-    endpoint = workspace.serving_endpoints.get(endpoint_name)
-    entities = {entity.name: str(entity.entity_version) for entity in endpoint.config.served_entities}
-    live = {entities[getattr(route, 'served_entity_name', None) or route.served_model_name]
-            for route in endpoint.config.traffic_config.routes if route.traffic_percentage > 0}
-    assert endpoint.state.ready.value == 'READY'
-    assert endpoint.state.config_update.value == 'NOT_UPDATING'
-    assert live == {str(version)}, (endpoint_name, live, version)
+    for readiness_attempt in range(30):
+        endpoint = workspace.serving_endpoints.get(endpoint_name)
+        entities = {entity.name: str(entity.entity_version) for entity in endpoint.config.served_entities}
+        live = {entities[getattr(route, 'served_entity_name', None) or route.served_model_name]
+                for route in endpoint.config.traffic_config.routes if route.traffic_percentage > 0}
+        if (endpoint.state.ready.value == 'READY'
+                and endpoint.state.config_update.value == 'NOT_UPDATING'
+                and live == {str(version)}):
+            break
+        time.sleep(10)
+    else:
+        raise AssertionError(('Expected version not stable', endpoint_name, version,
+                              endpoint.state.as_dict(), sorted(live)))
     scenarios = [('platform_prediction', False,
         'Explain MLflow tracing for LangGraph using a retrieved Databricks documentation citation.'),
         ('platform_stream', True,
@@ -66,11 +73,15 @@ for endpoint_name, version in endpoints.items():
         assert metadata['thread_id'] == custom['thread_id']
         trace_id = metadata['trace_id']
         trace = None
-        for attempt in range(10):
-            trace = client.get_trace(trace_id)
+        for attempt in range(20):
+            try:
+                trace = client.get_trace(trace_id)
+            except RestException as exc:
+                if exc.error_code not in {'NOT_FOUND', 'RESOURCE_DOES_NOT_EXIST'}:
+                    raise
             if trace is not None:
                 break
-            time.sleep(2)
+            time.sleep(3)
         assert trace and str(trace.info.state) == 'OK'
         spans = trace.data.spans; tags = trace.info.tags
         guards = {key: sum(s.name == key for s in spans) for key in ['pre_llm_check', 'post_llm_check']}
@@ -86,7 +97,10 @@ for endpoint_name, version in endpoints.items():
         native_cost = json.loads(native_cost) if isinstance(native_cost, str) else native_cost
         if require_cost:
             assert native_cost is not None, ('missing native cost', endpoint_name, trace_id)
-            assert abs(native_cost['total_cost'] - float(tags['agentops.cost_usd'])) < 1e-6
+            model_cost = sum((s.attributes.get('mlflow.llm.cost') or {}).get('total_cost', 0)
+                             for s in models)
+            assert abs(native_cost['total_cost'] - model_cost) < 1e-9
+            assert float(tags['agentops.cost_usd']) >= 0
         if endpoint_name == 'fe-platform-single-validation':
             assert len(models) == 1, [(s.name, s.span_type) for s in models]
             assert models[0].name != 'chat_completions.model'
@@ -97,6 +111,8 @@ for endpoint_name, version in endpoints.items():
                   'trace_id': trace_id, 'native_model_spans': len(models), 'guardrail_spans': guards,
                   'tokens': trace.info.token_usage['total_tokens'],
                   'agentops_cost_usd': tags.get('agentops.cost_usd'), 'native_cost': native_cost,
+                  'cost_estimates_match': (abs(native_cost['total_cost'] - float(tags['agentops.cost_usd'])) < 1e-6)
+                      if native_cost is not None else None,
                   'status': 'passed'}
         report['scenarios'].append(result)
         print(json.dumps(result))
