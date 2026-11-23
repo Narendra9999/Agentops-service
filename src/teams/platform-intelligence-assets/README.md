@@ -13,3 +13,9 @@ See `docs/development/non-split-asset-mapping-validation.md` for evidence and li
 Worker connectors live in `agent/workers/platform_engineering.py` and
 `agent/workers/cost_intelligence.py`. The package `__init__.py` only exports
 `call_platform` and `call_genie`; `_responses.py` shares response text extraction.
+
+Domain evaluation definitions are in `scorers/domain/cost_grounding.yaml` and
+`scorers/domain/platform_evidence.yaml`. These use the framework's existing
+Guidelines scorer type (pass/fail rules); `config.yaml` controls enablement
+and thresholds. They are not numeric rubric scorers. Built-in correctness,
+relevance and safety remain configured under `evaluation.builtin_scorers`.

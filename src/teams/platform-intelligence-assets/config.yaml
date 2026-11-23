@@ -35,21 +35,11 @@ evaluation:
       threshold: 0.8
   domain_scorers:
   - name: cost_grounding
-    type: guidelines
     enabled: true
     threshold: 0.8
-    rules:
-    - Do not invent monetary rates or quotes. For incomplete cost requests identify
-      missing workload inputs and assumptions. Platform-only requests do not require
-      a cost discussion.
   - name: platform_evidence
-    type: guidelines
     enabled: true
     threshold: 0.8
-    rules:
-    - When providing platform guidance include relevant Databricks documentation URLs.
-      Cost-only requests do not require platform citations. Do not claim infrastructure
-      changes.
 guardrails:
   enabled: true
   pre_llm:

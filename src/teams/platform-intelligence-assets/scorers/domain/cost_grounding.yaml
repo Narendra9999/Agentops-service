@@ -1,0 +1,7 @@
+name: cost_grounding
+type: guidelines
+enabled: true
+threshold: 0.8
+rules:
+- Do not invent monetary rates or quotes. For incomplete cost requests identify missing
+  workload inputs and assumptions. Platform-only requests do not require a cost discussion.

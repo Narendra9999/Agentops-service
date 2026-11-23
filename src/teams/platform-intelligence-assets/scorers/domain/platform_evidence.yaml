@@ -1,0 +1,8 @@
+name: platform_evidence
+type: guidelines
+enabled: true
+threshold: 0.8
+rules:
+- When providing platform guidance include relevant Databricks documentation URLs.
+  Cost-only requests do not require platform citations. Do not claim infrastructure
+  changes.
