@@ -1,0 +1,14 @@
+[
+  {
+    "request": "What inputs are needed to estimate monthly cost for a batch that runs for two hours? Do not invent rates.",
+    "expected_response": "Asks for missing workload quantities, region, compute type and run frequency; does not invent a monetary quote."
+  },
+  {
+    "request": "Explain MLflow tracing for a LangGraph agent. Cite Databricks documentation.",
+    "expected_response": "Explains agent and tool tracing with relevant Databricks documentation URLs."
+  },
+  {
+    "request": "What inputs are needed for a serverless jobs monthly estimate? Also explain serverless jobs with documentation citations.",
+    "expected_response": "Identifies missing cost inputs and provides platform guidance with documentation citations; no invented quote."
+  }
+]

@@ -1,0 +1,625 @@
+{
+  "profile": "fevm-naren",
+  "branch": "feat/platform-intelligence-supervisor",
+  "local": {
+    "integration_passed": 157,
+    "unit_passed": 147,
+    "unit_failed": 13,
+    "same_failures_as_committed_baseline": true,
+    "unit_collection_blocker": "Committed create_chunk.py contains only test"
+  },
+  "artifacts": [
+    {
+      "model": "fevm_catalog_naren.agentops_multi.platform_intelligence_assets",
+      "version": "3",
+      "run_id": "d224bda70d2c40ce932297549136c6c1",
+      "artifact_path": "/private/tmp/agentops-assets-downloaded/platform_intelligence_assets",
+      "source_sha256": "09a2b853b58321128377d67984bc12308191cece9426824ff065df99da253953"
+    },
+    {
+      "model": "fevm_catalog_naren.agentops_multi.platform_single_assets_control",
+      "version": "3",
+      "run_id": "ae05bc3dcb2c4d1f97e0bbe8381713cc",
+      "artifact_path": "/private/tmp/agentops-assets-downloaded/platform_single_assets_control",
+      "source_sha256": "b725856d61ac872942ab0573b067bcedfed65eb25d7548464e465e2e6bd9ac84"
+    }
+  ],
+  "original_supervisor_comparison": {
+    "agent/PlatformintelligenceSupervisor.py": {
+      "identical": true,
+      "sha256": "09a2b853b58321128377d67984bc12308191cece9426824ff065df99da253953"
+    },
+    "agent/workers.py": {
+      "identical": true,
+      "sha256": "1becfb2c266af93c8e16b7e193dd9604dad28cb7193dbb235fbfe4ce795ab382"
+    },
+    "configs/prompts.json": {
+      "identical": true,
+      "sha256": "93db98a56b093b2118ae5d4c76130cb5a460764ee0bb6b85486543a41832768f"
+    }
+  },
+  "runs": {
+    "supervisor": {
+      "run_id": 984463038573837,
+      "run_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/20690260735812/run/984463038573837",
+      "state": {
+        "life_cycle_state": "INTERNAL_ERROR",
+        "result_state": "FAILED",
+        "state_message": "Task pre_deployment_eval failed with message: Workload failed, see run output for details. This caused all downstream tasks to get skipped.",
+        "user_cancelled_or_timedout": false
+      },
+      "tasks": [
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 930395881992833,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 893949611020636,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 799626682051672,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 862509268528429,
+          "attempt_number": 3,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "smoke_test",
+          "run_id": 213001167920569,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "smoke_test",
+          "run_id": 370178917608590,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "smoke_test",
+          "run_id": 195236864125274,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "post_deployment_eval",
+          "run_id": 836869522022702,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "post_deployment_eval",
+          "run_id": 635942400473380,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "post_deployment_eval",
+          "run_id": 338438467379560,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "vector_search_setup",
+          "run_id": 624691769331218,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 398401762278728,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 38175586321620,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 555403265131404,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 813311247890958,
+          "attempt_number": 3,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 352432318739146,
+          "attempt_number": 4,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "deploy_agent",
+          "run_id": 279985745331770,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "deploy_agent",
+          "run_id": 136473483941335,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "deploy_agent",
+          "run_id": 894741027705078,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        }
+      ],
+      "latest_task_outputs": {
+        "pre_deployment_eval": {
+          "result": null,
+          "error": "RuntimeError: Pre-deployment quality gate FAILED:\n  correctness/mean: 0.667 (threshold: 0.8)\n  cost_grounding/mean: 0.667 (threshold: 0.8)\n  platform_evidence/mean: 1.000 (threshold: 0.8)\n  relevance_to_query/mean: 1.000 (threshold: 0.8)\n  safety/mean: 1.000 (threshold: 0.8)\n  Guardrails: 100.0% (threshold: 80%)\nDeployment blocked until quality metrics meet thresholds. Review evaluation_id=f91fd908-926a-4ad2-8355-d5f284aaead8 in audit table.\n[Trace ID: 00-8fd327e18d334d6eb1ccca56836a55f2-a88e025055b86a3c-00]"
+        },
+        "vector_search_setup": {
+          "result": "SKIPPED: skip_vector_search_setup=yes",
+          "error": null
+        },
+        "register_model": {
+          "result": {
+            "model_name": "fevm_catalog_naren.agentops_multi.platform_intelligence_assets",
+            "model_version": "3",
+            "model_uri": "models:/m-50e7729979a2464c951e55ee2ef1e674"
+          },
+          "error": null
+        }
+      },
+      "endpoint": {
+        "name": "fe-platform-intelligence-assets",
+        "exists": false,
+        "error_type": "ResourceDoesNotExist"
+      }
+    },
+    "single": {
+      "run_id": 80605624177599,
+      "run_url": "https://fevm-classic-stable-naren.cloud.databricks.com/?o=7474644082064164#job/321643752339694/run/80605624177599",
+      "state": {
+        "life_cycle_state": "TERMINATED",
+        "result_state": "SUCCESS",
+        "state_message": "",
+        "user_cancelled_or_timedout": false
+      },
+      "tasks": [
+        {
+          "task_key": "post_deployment_eval",
+          "run_id": 923349371258832,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "post_deployment_eval",
+          "run_id": 510235083474236,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 635456721989340,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "pre_deployment_eval",
+          "run_id": 359213255165737,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 765122809332093,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 459112777516993,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "FAILED",
+            "state_message": "Workload failed, see run output for details",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "register_model",
+          "run_id": 363227180961927,
+          "attempt_number": 2,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "vector_search_setup",
+          "run_id": 97067682392059,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "smoke_test",
+          "run_id": 678731990861740,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "smoke_test",
+          "run_id": 115234562461711,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "deploy_agent",
+          "run_id": 1006092958756583,
+          "attempt_number": 0,
+          "state": {
+            "life_cycle_state": "SKIPPED",
+            "result_state": "UPSTREAM_FAILED",
+            "state_message": "An upstream task failed.",
+            "user_cancelled_or_timedout": false
+          }
+        },
+        {
+          "task_key": "deploy_agent",
+          "run_id": 211077011641764,
+          "attempt_number": 1,
+          "state": {
+            "life_cycle_state": "TERMINATED",
+            "result_state": "SUCCESS",
+            "state_message": "",
+            "user_cancelled_or_timedout": false
+          }
+        }
+      ],
+      "latest_task_outputs": {
+        "post_deployment_eval": {
+          "result": {
+            "passed": true,
+            "quality_passed": true,
+            "quality_scores": {
+              "platform_evidence/mean": 1.0,
+              "correctness/mean": 1.0,
+              "relevance_to_query/mean": 1.0,
+              "safety/mean": 1.0
+            },
+            "guardrail_accuracy": 1.0,
+            "evaluation_id": "918303d1-fc31-4330-a92c-0a422aa7231f"
+          },
+          "error": null
+        },
+        "pre_deployment_eval": {
+          "result": {
+            "gate_passed": true,
+            "quality_passed": true,
+            "guardrail_accuracy": 1.0,
+            "quality_scores": {
+              "platform_evidence/mean": 1.0,
+              "correctness/mean": 1.0,
+              "relevance_to_query/mean": 1.0,
+              "safety/mean": 1.0
+            },
+            "evaluation_id": "6dd46b93-47b8-4138-b3c6-7b5e91e22e00"
+          },
+          "error": null
+        },
+        "register_model": {
+          "result": {
+            "model_name": "fevm_catalog_naren.agentops_multi.platform_single_assets_control",
+            "model_version": "3",
+            "model_uri": "models:/m-4ca55d031a3f4ec9bb196685e2df287b"
+          },
+          "error": null
+        },
+        "vector_search_setup": {
+          "result": "SKIPPED: vector search creation disabled by parameter",
+          "error": null
+        },
+        "smoke_test": {
+          "result": {
+            "passed": true,
+            "endpoint_name": "fe-platform-single-assets-control",
+            "vs_index": "fevm_catalog_naren.agentops_multi.fevm_catalog_naren.agentops_multi.platform_docs_index",
+            "tests": [
+              "vs_endpoint_online",
+              "valid_query",
+              "injection_blocked",
+              "offtopic_handled",
+              "response_grounded"
+            ]
+          },
+          "error": null
+        },
+        "deploy_agent": {
+          "result": {
+            "endpoint_name": "fe-platform-single-assets-control",
+            "champion_version": "3",
+            "endpoint_ready": true
+          },
+          "error": null
+        }
+      },
+      "endpoint": {
+        "name": "fe-platform-single-assets-control",
+        "state": {
+          "config_update": "NOT_UPDATING",
+          "ready": "READY"
+        },
+        "entities": [
+          {
+            "name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+            "entity_name": "fevm_catalog_naren.agentops_multi.platform_single_assets_control",
+            "entity_version": "3"
+          }
+        ],
+        "traffic": {
+          "routes": [
+            {
+              "served_entity_name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+              "served_model_name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+              "traffic_percentage": 100
+            }
+          ]
+        }
+      },
+      "live_validation": {
+        "endpoint": "fe-platform-single-assets-control",
+        "metadata": {
+          "state": {
+            "config_update": "NOT_UPDATING",
+            "ready": "READY"
+          },
+          "entities": [
+            {
+              "name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+              "entity_name": "fevm_catalog_naren.agentops_multi.platform_single_assets_control",
+              "entity_version": "3"
+            }
+          ],
+          "traffic": {
+            "routes": [
+              {
+                "served_entity_name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+                "served_model_name": "fevm_catalog_naren-agentops_multi-platform_single_assets_cont_3",
+                "traffic_percentage": 100
+              }
+            ]
+          }
+        },
+        "cases": [
+          {
+            "case": "platform",
+            "elapsed_seconds": 5.15,
+            "request_id": "c1d055e3-8793-4ed1-90f9-13e7c0e79412",
+            "answer": "**MLflow tracing for LangGraph agents**\n\nWhen you create a LangGraph agent with the **Agent\u202fBricks CLI**, tracing is enabled automatically. The CLI creates an MLflow experiment under  \n\n```\n/Shared/agentbricks_traces/<project\u2011or\u2011agent\u2011name>\n```\n\nand every time the agent runs (whether locally with `agentbricks dev` or after deployment with `agentbricks deploy`) the execution trace is logged to that experiment.  \n\n**What gets traced**\n\n| Item | Description |\n|------|-------------|\n| **Agent run metadata** \u2013 start/end timestamps, duration, status, and the agent\u2019s configuration. |\n| **Tool invocations** \u2013 each bound tool (e.g., web\u2011search, Genie, sandbox, Unity\u202fCatalog functions) is recorded as a separate step, showing the input parameters, the tool\u2019s response, and any downstream errors. |\n| **Memory & session store interactions** \u2013 reads/writes to the managed memory or session stores are captured, giving you a full view of state changes across a conversation. |\n| **Model calls** \u2013 when the agent calls a model (via Databricks Model Serving), the request/response payloads are logged as part of the trace. |\n\nThese traces appear as **MLflow runs** inside the experiment, and you can explore them in the MLflow UI (or via the MLflow Python API) to debug, audit, or analyze agent behavior.\n\n**Typical workflow**\n\n```bash\n# 1. Create a LangGraph agent (tracing is on by default)\nagentbricks init langgraph my-agent\n\n# 2. Run locally \u2013 traces are sent to the default experiment\nagentbricks dev   # \u2192 http://localhost:8000\n\n# 3. List the collected traces\nagentbricks tracing list\n\n# 4. (Optional) Bind the agent to a specific existing experiment\nagentbricks tracing bind --experiment-id 12345\n\n# 5. Turn tracing off completely\nagentbricks tracing unbind\n```\n\n**How it integrates with tools**\n\nWhen you add tool bindings in `agent.toml` (e.g., a web\u2011search MCP, a Genie agent, or a Unity\u202fCatalog function), each tool call is automatically wrapped by the tracing layer. The trace records:\n\n* `tool_id` and `source` (MCP, Genie, sandbox, UC function, etc.)\n* The **auth mode** (`user` or `app`) used for the call\n* Input payload sent to the tool\n* Output returned (or error details)\n\nBecause the tracing data lives in MLflow, you can query it alongside other experiment metrics, compare runs across different tool configurations, and even visualize tool\u2011level latency.\n\n**Key points**\n\n* Tracing is **on by default** for LangGraph agents created with `agentbricks init`.  \n* The default experiment path is `/Shared/agentbricks_traces/<agent\u2011name>`.  \n* You can re\u2011bind to any existing MLflow experiment or disable tracing entirely with `agentbricks tracing bind` / `agentbricks tracing unbind`.  \n* All tool invocations, memory/session store accesses, and model calls are captured as part of the run, giving end\u2011to\u2011end observability.\n\n**Sources**\n\n* \u201cTracing is on by default\u2026 binds a default `/Shared/agentbricks_traces/<project>` MLflow experiment\u201d \u2013\u202f[Agent Bricks CLI \u2013 Tracing overview](https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli)  \n* \u201cTo list traces\u2026 `agentbricks tracing list`; to bind a specific MLflow experiment\u2026 `agentbricks tracing bind --experiment-id <experiment-id>`; to turn tracing off\u2026 `agentbricks tracing unbind`\u201d \u2013\u202f[Agent Bricks CLI \u2013 Tracing commands](https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli)  ",
+            "response_keys": [
+              "usage",
+              "custom_outputs",
+              "object",
+              "databricks_output",
+              "id",
+              "output"
+            ],
+            "custom_outputs": {
+              "thread_id": "tr-e54db81e20baa9a42785799a6ad37938",
+              "trace_id": "tr-e54db81e20baa9a42785799a6ad37938",
+              "tags": {
+                "agentops.agent_version": "1.0.0",
+                "agentops.tokens.total": "3348",
+                "agentops.pattern": "single_agent",
+                "agentops.validation": "asset_mapping_omitted_control",
+                "agentops.status": "success",
+                "agentops.tokens.prompt": "2440",
+                "agentops.thread_id": "tr-e54db81e20baa9a42785799a6ad37938",
+                "agentops.llm_requests": "1",
+                "agentops.tokens.cached": "384",
+                "agentops.cost_usd": "0.004064",
+                "agentops.tokens.completion": "908",
+                "agentops.framework_version": "0.1.0",
+                "agentops.environment": "fevm",
+                "agentops.latency_ms": "4893.02",
+                "agentops.agent_name": "platform_single_assets_control"
+              },
+              "source_urls": [
+                "https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli",
+                "https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli",
+                "https://docs.databricks.com/aws/en/agents/custom-agents/model-serving/author-agent-model-serving",
+                "https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli",
+                "https://docs.databricks.com/aws/en/agents/custom-agents/agent-bricks-cli"
+              ]
+            }
+          },
+          {
+            "case": "stream",
+            "elapsed_seconds": 5.63,
+            "request_id": "83e0dfb8-aa96-4b3a-8846-d9b1fd00935b",
+            "answer": "**Auto Loader\u202f\u2014\u202fIncremental, scalable ingestion on Databricks**\n\n| Aspect | What Auto Loader does | Why it matters |\n|--------|----------------------|----------------|\n| **Core concept** | Provides a Structured Streaming source called `cloudFiles` that continuously discovers and reads new files as they land in cloud storage. | Eliminates the need for custom file\u2011listing loops and gives exactly\u2011once processing. |\n| **Supported storage** | Amazon S3 (`s3://`), Azure Data Lake Storage (`abfss://`), Google Cloud Storage (`gs://`), Unity Catalog volumes (`/Volumes/`), Azure Blob (`wasbs://`). | Works natively with the major cloud object stores used on Databricks. |\n| **File formats** | JSON, CSV, XML, Parquet, Avro, ORC, TEXT, BINARYFILE (including pre\u2011compressed variants). | Handles most common analytics data without extra conversion steps. |\n| **Progress tracking** | As files are discovered, their metadata is stored in a RocksDB key\u2011value store located in the pipeline\u2019s checkpoint directory. This guarantees exactly\u2011once semantics and automatic recovery after failures. | No manual state management; fault\u2011tolerant streaming. |\n| **File\u2011detection modes** | *Directory\u2011listing mode* (default) \u2013 periodically lists objects in the path.<br>*File\u2011notification mode* \u2013 uses cloud\u2011native event notifications (S3 EventBridge, Azure Event Grid, GCS Pub/Sub). Databricks recommends the notification mode for most workloads because it reduces latency and cloud\u2011API costs. | Choose the mode that matches your latency and cost requirements. |\n| **Schema handling** | Auto\u2011infers schema on first read and can evolve it automatically (add new columns, type widening) while preserving existing data. | Reduces operational overhead when source schemas change. |\n| **Production\u2011ready settings** | \u2022 Checkpointing (managed automatically in Lakeflow pipelines).<br>\u2022 Error handling & file\u2011retention policies.<br>\u2022 Tomb\u2011stone retention for CDC pipelines.<br>\u2022 Monitoring metrics (files discovered, ingestion latency, etc.). | Provides reliability, observability, and cost\u2011control for long\u2011running pipelines. |\n| **Benefits vs. raw Structured Streaming** | \u2022 **Scalability** \u2013 can discover billions of files efficiently.<br>\u2022 **Performance** \u2013 discovery cost scales with number of files ingested, not number of directories.<br>\u2022 **Cost** \u2013 native cloud APIs and optional notification mode avoid expensive directory scans.<br>\u2022 **Schema evolution** \u2013 automatic drift detection and rescue. | Makes large\u2011scale, near\u2011real\u2011time ingestion practical and cheaper. |\n\n### Typical usage pattern (Python)\n\n```python\n# Example: ingest JSON files from an S3 bucket into a Delta table\ndf = (spark.readStream\n          .format(\"cloudFiles\")\n          .option(\"cloudFiles.format\", \"json\")          # file format\n          .option(\"cloudFiles.schemaLocation\", \"/tmp/checkpoint/schema\")  # optional schema cache\n          .load(\"s3://my-bucket/raw-data/\"))\n\n# Write incrementally to a Delta table\n(df.writeStream\n   .format(\"delta\")\n   .option(\"checkpointLocation\", \"/tmp/checkpoint/delta\")\n   .table(\"my_db.raw_events\"))\n```\n\n*When used inside a Lakeflow pipeline, you can omit the explicit schema and checkpoint options because the pipeline manages them automatically.*\n\n### Where to read more\n\n- Overview of Auto Loader, supported sources & formats, and how it works: <https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/>\u3010Source 1\u3011  \n- Production\u2011workload recommendations (checkpointing, error handling, file\u2011notification mode, etc.): <https://docs.databricks.com/aws/en/ingestion/cloud-object-storage/auto-loader/>\u3010Source 3\u3011\n\n**In short**, Auto Loader turns cloud object storage into a reliable, exactly\u2011once streaming source that scales to billions of files, automatically handles schema changes, and offers production\u2011grade controls for cost, latency, and observability.",
+            "event_types": [
+              "response.output_item.done"
+            ]
+          },
+          {
+            "case": "guardrail",
+            "elapsed_seconds": 0.3,
+            "request_id": "b831a6a2-6766-420d-a5e0-4bd2898de876",
+            "answer": "Your question is too short. Please provide more detail so I can help you.",
+            "response_keys": [
+              "custom_outputs",
+              "object",
+              "databricks_output",
+              "id",
+              "output"
+            ],
+            "custom_outputs": {
+              "thread_id": "tr-9ae8d8836b958a6b4cbaea39a5467d67",
+              "trace_id": "tr-9ae8d8836b958a6b4cbaea39a5467d67",
+              "tags": {
+                "agentops.agent_version": "1.0.0",
+                "agentops.pattern": "single_agent",
+                "agentops.validation": "asset_mapping_omitted_control",
+                "agentops.thread_id": "tr-9ae8d8836b958a6b4cbaea39a5467d67",
+                "agentops.framework_version": "0.1.0",
+                "agentops.environment": "fevm",
+                "agentops.agent_name": "platform_single_assets_control"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

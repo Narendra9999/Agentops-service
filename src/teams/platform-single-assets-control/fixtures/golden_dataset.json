@@ -1,0 +1,14 @@
+[
+  {
+    "request": "Explain how MLflow tracing helps debug a LangGraph agent. Cite Databricks documentation.",
+    "expected_response": "MLflow traces capture agent and tool calls and help debug execution; cites documentation."
+  },
+  {
+    "request": "Explain serverless Lakeflow Jobs and cite Databricks documentation.",
+    "expected_response": "Describes serverless job execution and cites supporting Databricks documentation."
+  },
+  {
+    "request": "Explain how Auto Loader ingests new files and cite Databricks documentation.",
+    "expected_response": "Explains incremental ingestion using cloudFiles and cites supporting documentation."
+  }
+]

@@ -1,0 +1,127 @@
+agent:
+  name: platform_intelligence_assets
+  version: 1.0.0
+  description: Team-owned supervisor calling existing platform engineering and Genie
+    agents
+tracing:
+  instrumentation:
+    enabled: true
+    integration: langchain
+  exporter: experiment
+  experiment_name: /Shared/agentops-platform-intelligence-assets
+  uc_trace_storage_enabled: false
+  default_tags:
+    agentops.validation: nested_asset_mapping
+llm:
+  endpoint: system.ai.claude-sonnet-4-6
+  api: ai_gateway
+session_history:
+  enabled: false
+long_term_memory:
+  enabled: false
+evaluation:
+  scorer_mode: builtin,domain
+  judge_model: databricks-claude-sonnet-4-6
+  quality_gate_threshold: 0.8
+  builtin_scorers:
+    correctness:
+      enabled: true
+      threshold: 0.8
+    relevance_to_query:
+      enabled: true
+      threshold: 0.8
+    safety:
+      enabled: true
+      threshold: 0.8
+  domain_scorers:
+  - name: cost_grounding
+    type: guidelines
+    enabled: true
+    threshold: 0.8
+    rules:
+    - Do not invent monetary rates or quotes. For incomplete cost requests identify
+      missing workload inputs and assumptions. Platform-only requests do not require
+      a cost discussion.
+  - name: platform_evidence
+    type: guidelines
+    enabled: true
+    threshold: 0.8
+    rules:
+    - When providing platform guidance include relevant Databricks documentation URLs.
+      Cost-only requests do not require platform citations. Do not claim infrastructure
+      changes.
+guardrails:
+  enabled: true
+  pre_llm:
+    enabled_checks:
+    - input_length_min
+    - input_length_max
+    - pii
+    - injection
+    max_input_length: 12000
+    min_input_length: 2
+  post_llm:
+    enabled_checks:
+    - pii_leakage
+    - compliance
+    - quality
+    min_response_length: 2
+naming:
+  catalog: fevm_catalog_naren
+  schema: agentops_multi
+  audit_schema: agentops_multi_audit
+  agent_endpoint: fe-platform-intelligence-assets
+deployment:
+  environment_vars:
+    DATABRICKS_HOST: https://fevm-classic-stable-naren.cloud.databricks.com
+    DATABRICKS_CLIENT_ID: e3bcf75e-7b34-4026-8860-d5e4423ea2b7
+    DATABRICKS_CLIENT_SECRET: '{{secrets/fe-agentops-multi/oauth-client-secret}}'
+  serving_scale_to_zero: true
+  champion:
+    workload_size: Small
+    traffic_percentage: 100
+  ai_gateway:
+    safety_enabled: true
+    inference_tables_enabled: true
+    rate_limit_per_user_per_minute: 10
+    rate_limit_per_endpoint_per_minute: 100
+    usage_tracking_enabled: true
+model:
+  prompt_registry_enabled: false
+  env_pack: false
+  promote_on_registration: false
+  pip_dependency_mode: replace
+  pip_dependencies_file: configs/requirements.lock
+  resources:
+  - type: serving_endpoint
+    name_from: supervisor.workers.platform_engineering.endpoint_name
+  - type: genie_space
+    name_from: supervisor.workers.cost_intelligence.space_id
+  asset_mappings:
+  - source: configs
+    destination: agent/configs
+pipeline:
+  request_timeout_seconds: 240
+  sanity_queries:
+    pre_deployment: Explain MLflow tracing with a Databricks documentation citation.
+    deployment: Explain MLflow tracing with a Databricks documentation citation.
+smoke_test:
+  test_queries:
+    valid_query: Explain MLflow tracing for LangGraph with a Databricks documentation
+      citation.
+    grounding: Explain Auto Loader ingestion with a Databricks documentation citation.
+    short_input: '?'
+inference:
+  target_class: PlatformIntelligenceSupervisor
+  target_protocol: responses
+supervisor:
+  max_steps: 12
+  timeout_seconds: 210
+  workers:
+    platform_engineering:
+      endpoint_name: fe-platform-single-validation
+    cost_intelligence:
+      space_id: 01f1d6efcecd1620b04cf487817675b7
+middleware:
+  streaming:
+    output_mode: buffered

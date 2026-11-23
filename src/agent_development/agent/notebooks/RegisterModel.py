@@ -491,6 +491,9 @@ conda_env = mlflow_conda_env(
 
 from framework.inference.packaging import team_code_paths
 
+# Also used below by the existing packaged-prompt manifest validation.
+team_configs_dir = os.path.join(os.path.dirname(team_agent_dir), "configs")
+
 # Select the model entry point + code_paths.
 #   - Team custom agent present → register the team's Agent.py wrapped by the
 #     cost-tracking model (real-time per-request $).
@@ -501,12 +504,14 @@ if use_team_agent and os.path.exists(cost_wrapper):
     # <temp>/code/agent/Agent.py — keeping ../configs/ resolution correct.
     python_model = cost_wrapper
     code_paths = [tools_dir, framework_dir] + team_code_paths(
-        team_agent_dir, config_path if team_config else "")
+        team_agent_dir, config_path if team_config else "",
+        asset_mappings=model_cfg.get("asset_mappings"))
     print(f"Registering TEAM custom agent (cost-tracked): {team_agent_dir}")
 elif use_team_agent:
     python_model = os.path.join(team_agent_dir, "Agent.py")
     code_paths = [tools_dir, framework_dir] + team_code_paths(
-        team_agent_dir, config_path if team_config else "")
+        team_agent_dir, config_path if team_config else "",
+        asset_mappings=model_cfg.get("asset_mappings"))
     print(f"Registering TEAM custom agent (no cost wrapper found): {team_agent_dir}")
 else:
     python_model = os.path.join(agent_dir, "Agent.py")
@@ -521,6 +526,12 @@ print(f"  code_paths: {code_paths}")
 for p in code_paths:
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
+# Explicit mappings stage a complete agent package. Match the eventual MLflow
+# code/ import root during inline validation, before MLflow copies that tree.
+if model_cfg.get("asset_mappings") and use_team_agent:
+    staged_code_root = os.path.dirname(code_paths[2])
+    if staged_code_root not in sys.path:
+        sys.path.insert(0, staged_code_root)
 
 from framework.team_runtime import TeamRuntime
 team_runtime = TeamRuntime(bundle_root, team_name, dbutils)

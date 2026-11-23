@@ -1,0 +1,46 @@
+{
+  "endpoint": "fe-platform-single-validation",
+  "scenarios": {
+    "prediction": {
+      "trace_id": "tr-22f94c0486effd5dff67f505d1689cb4",
+      "state": "OK",
+      "tokens": "3285",
+      "cost_usd": "0.004125",
+      "status": "passed"
+    },
+    "streaming": {
+      "trace_id": "tr-f9763ffb0c77a9cec9ccbacecce5e670",
+      "state": "OK",
+      "tokens": "4581",
+      "cost_usd": "0.005014",
+      "status": "passed"
+    },
+    "input_block": {
+      "trace_id": "tr-007f3c72c2fe42f01434e416e586ec49",
+      "state": "OK",
+      "tokens": null,
+      "cost_usd": null,
+      "status": "passed"
+    }
+  },
+  "model_version": "5",
+  "pipeline_run_id": 503615624058011,
+  "pre_evaluation_id": "11dad4d2-fe8a-4360-87a8-adb255aff4b9",
+  "post_evaluation_id": "6e8f5e8d-e7a9-403d-8925-07d42b1a59f8",
+  "quality_scores": {
+    "platform_evidence": 1.0,
+    "correctness": 1.0,
+    "relevance_to_query": 1.0,
+    "safety": 1.0
+  },
+  "guardrail_accuracy": 1.0,
+  "live_status": "passed",
+  "retrieval_verified": true,
+  "pipeline_result": "SUCCESS",
+  "endpoint_state": {
+    "ready": "READY",
+    "config_update": "NOT_UPDATING",
+    "traffic_percentage": 100
+  },
+  "local_tests_passed": 252
+}
