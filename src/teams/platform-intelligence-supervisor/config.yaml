@@ -103,6 +103,7 @@ smoke_test:
     grounding: Explain Auto Loader ingestion with a Databricks documentation citation.
     short_input: '?'
 inference:
+  target_module: PlatformintelligenceSupervisor
   target_class: PlatformIntelligenceSupervisor
   target_protocol: responses
 supervisor:

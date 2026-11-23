@@ -29,10 +29,11 @@ def config():
 
 
 def test_team_is_an_ordinary_agent_and_uses_original_pipeline():
-    source = (TEAM / 'agent/Agent.py').read_text()
+    assert not (TEAM / 'agent/Agent.py').exists()
+    source = (TEAM / 'agent/PlatformintelligenceSupervisor.py').read_text()
     assert 'from framework' not in source and 'set_model' not in source
     cfg = config()
-    cls = load_module('supervisor_target', 'Agent.py').PlatformIntelligenceSupervisor
+    cls = load_module('supervisor_target', 'PlatformintelligenceSupervisor.py').PlatformIntelligenceSupervisor
     assert cfg['inference']['target_class'] == cls.__name__
     assert len(cfg['supervisor']['workers']) == 2
     assert not cfg['session_history']['enabled']
@@ -58,7 +59,7 @@ def test_custom_rubric_resolves_with_existing_loader():
 def test_target_runs_through_shared_middleware_prediction_and_stream():
     async def run():
         from framework.inference.agent_middleware import AgentOPSMiddleware
-        target = load_module('supervisor_target', 'Agent.py').PlatformIntelligenceSupervisor()
+        target = load_module('supervisor_target', 'PlatformintelligenceSupervisor.py').PlatformIntelligenceSupervisor()
         target.timeout, target.max_steps = 10, 12
         async def ainvoke(state, config):
             assert state['messages'][-1]['content'] == 'Explain Unity Catalog'
@@ -122,7 +123,7 @@ def test_remote_platform_uses_responses_contract():
 def test_load_context_builds_both_workers_inside_the_team():
     import sys
     from unittest.mock import Mock
-    target = load_module('supervisor_target', 'Agent.py').PlatformIntelligenceSupervisor()
+    target = load_module('supervisor_target', 'PlatformintelligenceSupervisor.py').PlatformIntelligenceSupervisor()
     workers = load_module('team_workers', 'workers/__init__.py')
     graph_factory = Mock(return_value=object())
     workspace = SimpleNamespace(config=SimpleNamespace(host='https://workspace'))
@@ -160,7 +161,10 @@ from framework.inference.cost_tracking_model import _resolve_inner_model
 from mlflow.pyfunc import ResponsesAgent
 sys.path.insert(0, str(Path.cwd()))
 sys.path.insert(0, str(Path.cwd() / 'agent'))
-target = _resolve_inner_model({'inference': {'target_class': 'PlatformIntelligenceSupervisor'}})
+import yaml
+config = yaml.safe_load((Path.cwd() / 'config.yaml').read_text())
+assert not (Path.cwd() / 'agent/Agent.py').exists()
+target = _resolve_inner_model(config)
 assert isinstance(target, ResponsesAgent)
 assert target.__class__.__name__ == 'PlatformIntelligenceSupervisor'
 assert (Path.cwd() / 'configs/prompts.json').is_file()

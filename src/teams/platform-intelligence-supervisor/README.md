@@ -13,17 +13,19 @@ access to both resources and the configured AI Gateway model.
 
 ## Ownership
 
-`agent/Agent.py` imports the configured target class from
-`agent/PlatformintelligenceSupervisor.py`, which owns graph construction, routing
-instructions and worker tools.
-`agent/workers/platform_engineering.py` and `agent/workers/cost_intelligence.py`
-own the two worker API calls; `workers/__init__.py` exports them. The team is an ordinary MLflow
-ResponsesAgent; it imports no AgentOPS orchestration or supervisor base class.
+`agent/PlatformintelligenceSupervisor.py` owns graph construction, routing
+instructions and worker tools. `agent/workers/platform_engineering.py` and
+`agent/workers/cost_intelligence.py` own the worker API calls. This is an ordinary
+MLflow ResponsesAgent with no AgentOPS orchestration base class.
 
-The AgentOPS registration loader loads `agent/Agent.py`, which imports the team
-supervisor. `inference.target_class` selects `PlatformIntelligenceSupervisor`.
-Keep `Agent.py` on this non-split branch; module-only loading is not available here.
-The framework loads its context and wraps its public calls. The shared framework handles middleware,
+This team intentionally has no `Agent.py`. `inference.target_module` locates
+`PlatformintelligenceSupervisor.py`; `inference.target_class` selects its class.
+For other teams, an existing `Agent.py` takes precedence over `target_module`.
+Dotted module names support nested packages (for example,
+`supervisors.PlatformintelligenceSupervisor`). Prompt paths must still match the
+packaged layout; `model.asset_mappings` can accommodate existing relative paths.
+The framework loads context and wraps public calls. The shared framework handles
+middleware,
 configured guardrails, response adaptation, native instrumentation, usage handling,
 evaluation and deployment. Only the shared serving entry point calls `set_model`.
 
@@ -81,9 +83,10 @@ loading needs no asset mapping. Both teams use one combined `config.yaml`.
 
 ## Restoration checks
 
-On this non-split branch, 165 local integration tests passed (excluding the
+On this non-split branch, 176 local integration tests passed (excluding the
 separate live-endpoint test module). These include the restored team contract,
 request/stream middleware, injection guardrail, both worker HTTP contracts, Genie
-failure propagation, rubric resolution, and class/worker imports from an isolated
+failure propagation, rubric resolution, module-only registration selection, entry-point precedence, nested relative imports,
+and class/worker imports from an isolated
 packaged copy. Providers and workers are controlled in these tests; these results
 do not establish live FEVM deployment or rubric judge quality on this branch.

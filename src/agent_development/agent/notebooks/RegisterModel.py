@@ -225,15 +225,20 @@ if team_config:
 
 # Resolve the team's custom agent dir — same convention as team fixtures/scorers:
 #   src/teams/<team_name>/{fixtures,scorers,agent}. When team_name is provided,
-#   model packaging must use the corresponding team Agent.py.
+#   model packaging prefers Agent.py, then inference.target_module.
 team_agent_dir = os.path.join(bundle_root, "src", "teams", team_name, "agent") if team_name else ""
-use_team_agent = bool(team_agent_dir) and os.path.exists(os.path.join(team_agent_dir, "Agent.py"))
+from framework.inference.target_loader import team_target_entry
+import yaml
+with open(config_path) as _entry_file:
+    _entry_config = yaml.safe_load(_entry_file) or {}
+team_entry = team_target_entry(team_agent_dir, _entry_config) if team_agent_dir else None
+use_team_agent = team_entry is not None
 cost_wrapper = os.path.join(framework_dir, "inference", "cost_tracking_model.py")
 
 if team_name and not use_team_agent:
     raise FileNotFoundError(
         f"Team agent not found for team_name='{team_name}'. "
-        f"Expected Agent.py under {team_agent_dir}."
+        f"Expected Agent.py or inference.target_module under {team_agent_dir}."
     )
 
 print(f"Project root (src): {project_root}")
@@ -508,6 +513,8 @@ if use_team_agent and os.path.exists(cost_wrapper):
         asset_mappings=model_cfg.get("asset_mappings"))
     print(f"Registering TEAM custom agent (cost-tracked): {team_agent_dir}")
 elif use_team_agent:
+    if team_entry.name != "Agent.py":
+        raise FileNotFoundError("Module-only team deployment requires the shared AgentOPS serving wrapper")
     python_model = os.path.join(team_agent_dir, "Agent.py")
     code_paths = [tools_dir, framework_dir] + team_code_paths(
         team_agent_dir, config_path if team_config else "",

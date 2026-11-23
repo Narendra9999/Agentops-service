@@ -14,7 +14,8 @@ AgentOPS owns the outer lifecycle for every target. Supported targets:
 Guardrails, history, request tracing and persistence belong to the shared
 AgentOPSMiddleware, not to a supervisor-specific team wrapper.
 
-The team entry file is Agent.py. ChatModel is the default class;
+The team entry file is Agent.py, or inference.target_module when absent.
+ChatModel is the default class;
 inference.target_class can select an explicit alternate implementation.
 inference.target_protocol selects responses or chat_completions.
 """
@@ -37,37 +38,57 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_inner_model(config=None):
-    """Locate the team's Agent.py via sys.path and return a ChatModel instance."""
-    import sys as _sys
+    """Prefer packaged Agent.py; use target_module only when Agent.py is absent."""
+    import sys
+    from pathlib import Path
+    from framework.inference.target_loader import team_target_entry
 
-    failures = []
-    for sp in _sys.path:
-        for rel in ("Agent.py", os.path.join("agent", "Agent.py")):
-            fp = os.path.join(sp, rel)
-            if not os.path.isfile(fp):
-                continue
-            try:
-                spec = importlib.util.spec_from_file_location("_team_agent", fp)
-                if spec is None or spec.loader is None:
-                    continue
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                class_name = (config or {}).get("inference", {}).get("target_class", "ChatModel")
-                cls = getattr(mod, class_name, None)
-                if cls is not None:
-                    logger.info("Resolved inner agent from: %s", fp)
-                    return cls()
-            except Exception as exc:
-                failures.append(f"{fp}: {type(exc).__name__}: {exc}")
-                logger.warning("Could not load agent from %s: %s", fp, exc)
-                continue
-
-    failure_details = "\n".join(f"  - {failure}" for failure in failures)
-    raise ImportError(
-        "Could not find Agent.py with a ChatModel class in any code_paths directory. "
-        "Ensure the team agent directory is included in code_paths when logging the model."
-        + (f" Candidate load failures:\n{failure_details}" if failure_details else "")
-    )
+    config = config or {}
+    options = config.get('inference') or {}
+    class_name = options.get('target_class', 'ChatModel')
+    roots = []
+    for entry in sys.path:
+        for root in (Path(entry), Path(entry) / 'agent'):
+            if root not in roots:
+                roots.append(root)
+    # Search all staged roots for the conventional entry point first.
+    conventional = next(((root, root / 'Agent.py') for root in roots
+                         if (root / 'Agent.py').is_file()), None)
+    selected = conventional
+    if selected is None:
+        for root in roots:
+            path = team_target_entry(root, config)
+            if path is not None:
+                selected = root, path
+                break
+    if selected is None:
+        raise ImportError('No packaged Agent.py or inference.target_module found. '
+                          'Include the team agent directory in code_paths.')
+    root, path = selected
+    module_name = '_team_agent' if conventional else options['target_module']
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f'Cannot load team entry point: {path}')
+    module = importlib.util.module_from_spec(spec)
+    # Support sibling imports and package-relative imports from staged modules.
+    previous = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    sys.path.insert(0, str(root))
+    try:
+        spec.loader.exec_module(module)
+        cls = getattr(module, class_name, None)
+        if cls is None:
+            raise ImportError(f'{path} does not expose inference.target_class={class_name!r}')
+        logger.info('Resolved target %s from %s', class_name, path)
+        return cls()
+    except Exception:
+        if previous is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous
+        raise
+    finally:
+        sys.path.remove(str(root))
 
 
 # Compatibility import for integrations using the old result normalizer.
