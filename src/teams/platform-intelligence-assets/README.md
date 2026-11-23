@@ -9,3 +9,7 @@ its code. The original sibling configs remain packaged as before.
 This team calls existing platform and Genie workers. It does not deploy workers.
 Use the normal combined config and shared pipeline in `deployment/databricks.yml`.
 See `docs/development/non-split-asset-mapping-validation.md` for evidence and limits.
+
+Worker connectors live in `agent/workers/platform_engineering.py` and
+`agent/workers/cost_intelligence.py`. The package `__init__.py` only exports
+`call_platform` and `call_genie`; `_responses.py` shares response text extraction.
