@@ -489,21 +489,7 @@ conda_env = mlflow_conda_env(
     ] + resolved_model_pip_deps,
 )
 
-# Build a helper to expand a team agent directory into code_paths entries.
-# Two things are needed:
-#   1. The directory itself (staged as `agent/`) → enables `import agent.Agent`
-#   2. Each sub-package inside it at the top level → enables `import utils`,
-#      `import sql_generator`, etc. that Agent.py uses via absolute imports.
-def team_agent_code_paths(agent_dir: str) -> list:
-    paths = [agent_dir]  # staged as `agent/`
-    for entry in sorted(os.listdir(agent_dir)):
-        if entry.startswith(".") or entry == "__pycache__":
-            continue
-        full = os.path.join(agent_dir, entry)
-        # Add sub-packages (directories) so Agent.py can `import utils` etc.
-        if os.path.isdir(full):
-            paths.append(full)
-    return paths
+from framework.inference.packaging import team_code_paths
 
 # Select the model entry point + code_paths.
 #   - Team custom agent present → register the team's Agent.py wrapped by the
@@ -514,23 +500,13 @@ if use_team_agent and os.path.exists(cost_wrapper):
     # Agent.py is staged inside code_paths so its __file__ lands at
     # <temp>/code/agent/Agent.py — keeping ../configs/ resolution correct.
     python_model = cost_wrapper
-    code_paths = [tools_dir, framework_dir] + team_agent_code_paths(team_agent_dir)
-    # include team configs/ (prompt_templates.yml etc.) so they stage alongside Agent.py
-    team_configs_dir = os.path.join(os.path.dirname(team_agent_dir), "configs")
-    if os.path.isdir(team_configs_dir):
-        code_paths.append(team_configs_dir)
-    if team_config and os.path.isfile(config_path):
-        code_paths.append(config_path)
+    code_paths = [tools_dir, framework_dir] + team_code_paths(
+        team_agent_dir, config_path if team_config else "")
     print(f"Registering TEAM custom agent (cost-tracked): {team_agent_dir}")
 elif use_team_agent:
     python_model = os.path.join(team_agent_dir, "Agent.py")
-    code_paths = [tools_dir, framework_dir] + team_agent_code_paths(team_agent_dir)
-    # include team configs/ (prompt_templates.yml etc.) if present
-    team_configs_dir = os.path.join(os.path.dirname(team_agent_dir), "configs")
-    if os.path.isdir(team_configs_dir):
-        code_paths.append(team_configs_dir)
-    if team_config and os.path.isfile(config_path):
-        code_paths.append(config_path)
+    code_paths = [tools_dir, framework_dir] + team_code_paths(
+        team_agent_dir, config_path if team_config else "")
     print(f"Registering TEAM custom agent (no cost wrapper found): {team_agent_dir}")
 else:
     python_model = os.path.join(agent_dir, "Agent.py")
