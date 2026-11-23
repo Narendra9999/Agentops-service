@@ -55,26 +55,8 @@ def test_first_deployment_sets_experiment_without_existing_endpoint(monkeypatch)
     assert serving_environment(ROOT, '', workspace, 'new-endpoint', experiment_id='created') == {'MLFLOW_EXPERIMENT_ID': 'created'}
 
 
-def test_team_memory_requests_use_evaluation_owner_and_bound_signature(monkeypatch):
-    secret = SimpleNamespace(get=lambda scope, key: 'unit-test-signing-key')
-    runtime = TeamRuntime(ROOT, 'platform-intelligence', SimpleNamespace(secrets=secret))
-    from fe_multi_agent.memory import verify_context
-    request = runtime.request('Read the saved region')
-    context = verify_context(request['custom_inputs']['application_context'], request['input'])
-    assert context['owner_id'].startswith('evaluation:agentops:')
-    assert context['owner_id'] == runtime.owner
-    with pytest.raises(ValueError, match='does not match'):
-        verify_context(request['custom_inputs']['application_context'],[{'role':'user','content':'Modified'}])
 
 
-def test_registration_example_never_reuses_signed_evaluation_context():
-    secret = SimpleNamespace(get=lambda scope, key: 'unit-test-signing-key')
-    runtime = TeamRuntime(ROOT, 'platform-intelligence', SimpleNamespace(secrets=secret))
-    example = runtime.input_example('Hello')
-    assert example == {'input': [{'role': 'user', 'content': 'Hello'}]}
-    assert 'application_context' in runtime.request('Hello')['custom_inputs']
-    runtime.config['multi_agent']['settings']['unsigned_context_policy'] = 'reject'
-    assert runtime.input_example('Hello') is None
 
 
 def test_candidate_uses_run_version_and_legacy_fallback():
@@ -97,14 +79,14 @@ def test_existing_serving_secret_references_are_preserved(monkeypatch):
 
 
 def test_bundle_uses_original_notebooks_only():
-    bundle=yaml.safe_load((ROOT/'src/teams/platform-intelligence/deployment/databricks.yml').read_text())
+    bundle=yaml.safe_load((ROOT/'src/teams/platform-intelligence-supervisor/deployment/databricks.yml').read_text())
     tasks=bundle['resources']['jobs']['agentops_pipeline']['tasks']
     canonical=yaml.safe_load((ROOT/'resources/pipeline-resource.yml').read_text())['resources']['jobs']['agentops_pipeline']['tasks']
     assert [t['task_key'] for t in tasks]==[t['task_key'] for t in canonical]
     for actual,expected in zip(tasks,canonical):
         assert actual['notebook_task']['notebook_path'].endswith(expected['notebook_task']['notebook_path'][3:])
         assert actual.get('depends_on')==expected.get('depends_on')
-    assert not (ROOT/'src/teams/platform-intelligence/agent/fe_multi_agent/pipeline.py').exists()
+    assert not (ROOT/'src/framework/orchestration').exists()
 
 
 def test_framework_build_stages_only_framework_sources(tmp_path, monkeypatch):
@@ -124,14 +106,14 @@ def test_framework_build_stages_only_framework_sources(tmp_path, monkeypatch):
     assert not (result / 'src/customer_secrets').exists()
 
 
-def test_team_quality_gate_covers_all_six_native_scorers():
+def test_team_quality_gate_covers_active_supervisor_scorers():
     from agent_development.agent_evaluation.evaluation.scorer_loader import get_thresholds
-    config = yaml.safe_load((ROOT/'src/teams/platform-intelligence/config.yaml').read_text())
+    config = yaml.safe_load((ROOT/'src/teams/platform-intelligence-supervisor/config.yaml').read_text())
     thresholds = get_thresholds(config['evaluation'])
-    assert thresholds == {name + '/mean': 0.8 for name in (
-        'correctness', 'relevance_to_query', 'safety', 'cost_grounding',
-        'platform_evidence', 'routing',
-    )}
+    assert thresholds == {
+        'correctness/mean': .8, 'relevance_to_query/mean': .8, 'safety/mean': .8,
+        'cost_estimation_quality/mean': 4., 'platform_evidence/mean': 4.,
+    }
 
 
 @pytest.mark.parametrize('metrics', [{}, {'routing/mean': float('nan')}, {'routing/mean': .5}])

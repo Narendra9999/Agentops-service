@@ -346,40 +346,31 @@ def test_actual_supervisor_entrypoint_is_a_target_of_shared_middleware(monkeypat
     import yaml
     from databricks import sdk
 
-    team = Path('src/teams/platform-intelligence')
+    team = Path('src/teams/platform-intelligence-supervisor')
     monkeypatch.syspath_prepend(str(team / 'agent'))
-    from fe_multi_agent import supervisor_agent as supervisor
+    from PlatformintelligenceSupervisor import PlatformIntelligenceSupervisor
     order = []
 
     class Graph:
         async def ainvoke(self, state, config):
             order.append('graph')
             assert state['messages'][-1]['content'] == 'Explain Databricks usage'
-            return {'messages': [NS(content='Supervisor graph answer')]}
+            return {'messages': [NS(type='ai', tool_calls=[], content='Supervisor graph answer')]}
 
-    monkeypatch.setattr(sdk, 'WorkspaceClient', lambda: NS(current_user=NS(me=lambda: NS(user_name='test'))))
-    monkeypatch.setattr(supervisor, 'load_prompts', lambda path: {'supervisor': 'Route to specialists'})
-    monkeypatch.setattr(supervisor, 'build_graph', lambda *args: Graph())
-    monkeypatch.setattr(supervisor.SupervisorAgent, 'load_context', lambda *args: None)
-    monkeypatch.setattr('mlflow.langchain.autolog', lambda: None)
-    spec = importlib.util.spec_from_file_location('middleware_supervisor_target', team / 'agent/Agent.py')
-    module = importlib.util.module_from_spec(spec)
-    with patch('mlflow.models.set_model'):
-        spec.loader.exec_module(module)
-    assert not issubclass(module.ChatModel, AgentOPSBase)
-    assert not hasattr(module, '_GuardedTurn')
+    monkeypatch.setattr(PlatformIntelligenceSupervisor, 'load_context', lambda *args: None)
+    target = PlatformIntelligenceSupervisor()
+    target.timeout, target.max_steps, target.graph = 10, 12, Graph()
+    assert not isinstance(target, AgentOPSBase)
     config = yaml.safe_load((team / 'config.yaml').read_text())
     config['tracing'] = {}
-    model = wrapper(module.ChatModel(), config)
+    model = wrapper(target, config)
     guards(model, order)
     if streaming:
         events = list(model.predict_stream(request()))
         assert events[-1].item['content'][0]['text'] == 'Supervisor graph answer'
-        assert events[-1].custom_outputs['memory']['mode'] == 'stateless'
     else:
         result = model.predict(request())
         assert extract_response_text(result) == 'Supervisor graph answer'
-        assert result.custom_outputs['memory']['mode'] == 'stateless'
     assert order == ['pre', 'graph', 'post']
 
 

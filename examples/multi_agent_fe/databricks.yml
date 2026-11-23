@@ -8,10 +8,6 @@ variables:
     default: fe-agentops-context
   context_secret_key:
     default: signing-key
-  experiment_id:
-    description: MLflow experiment containing application traces
-  judge_model:
-    default: databricks-gpt-oss-120b
 
 resources:
   apps:
@@ -29,29 +25,6 @@ resources:
             scope: ${var.context_secret_scope}
             key: ${var.context_secret_key}
             permission: READ
-  jobs:
-    daily_monitor:
-      name: fe-platform-team-monitor-${bundle.target}
-      max_concurrent_runs: 1
-      schedule:
-        quartz_cron_expression: "0 0 7 * * ?"
-        timezone_id: UTC
-        pause_status: UNPAUSED
-      tasks:
-        - task_key: score_captured_traces
-          notebook_task:
-            notebook_path: ./notebooks/03_DailyMonitor.py
-            base_parameters:
-              project_root: ${workspace.file_path}
-              experiment_id: ${var.experiment_id}
-              judge_model: ${var.judge_model}
-          environment_key: monitor
-      environments:
-        - environment_key: monitor
-          spec:
-            client: "4"
-            dependencies:
-              - "mlflow[databricks]==3.11.1"
 
 targets:
   fevm:

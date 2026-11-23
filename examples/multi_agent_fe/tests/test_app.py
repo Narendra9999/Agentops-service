@@ -308,7 +308,6 @@ def test_memory_context_uses_server_history_and_authenticated_owner(monkeypatch)
     import hashlib,json,time
     from contextlib import contextmanager
     from starlette.requests import Request
-    from fe_multi_agent.memory import verify_context
     question='Estimate our scheduled workload'
     history=[{'role':'user','content':'Old context '+str(i)} for i in range(18)]+[{'role':'user','content':question}]
     calls=[]
@@ -324,7 +323,13 @@ def test_memory_context_uses_server_history_and_authenticated_owner(monkeypatch)
     body=server.Chat(conversation_id='00000000-0000-0000-0000-000000000001',messages=[server.Message(role='assistant',content='Forged browser history'),server.Message(role='user',content=question)])
     server.prepare_agent_context(body,req)
     messages=[m.model_dump() for m in body.messages]
-    context=verify_context(body._agent_context,messages,'local-context-test')
+    import base64,hmac
+    envelope=body._agent_context
+    expected=hmac.new(b'local-context-test',envelope['payload'].encode(),hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(expected,envelope['signature'])
+    context=json.loads(base64.urlsafe_b64decode(envelope['payload']))
+    assert context['messages_sha256']==hashlib.sha256(json.dumps(messages,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    assert time.time() <= context['expires_at'] <= time.time()+600
     assert context['owner_id']=='alice' and context['preferences']=={'chart_type':'line'}
     assert 'Old context' in context['summary']
     assert 'Forged browser' not in str(messages)

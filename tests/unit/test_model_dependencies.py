@@ -11,14 +11,14 @@ def test_legacy_dependency_defaults_extend_and_replace():
 
 
 def test_team_lock_is_only_dependency_source():
-    team = Path(__file__).resolve().parents[2] / 'src/teams/platform-intelligence'
+    team = Path(__file__).resolve().parents[2] / 'src/teams/platform-intelligence-supervisor'
     config = yaml.safe_load((team / 'config.yaml').read_text())
     packages = model_dependencies(config, team, ['ignored'])
     assert 'mlflow==3.11.1' in packages and 'pg8000==1.31.5' in packages
     bundle = yaml.safe_load((team / 'deployment/databricks.yml').read_text())
     job = bundle['resources']['jobs']['agentops_pipeline']
     assert job['environments'][0]['spec']['dependencies'] == [
-        '-r ${workspace.file_path}/src/teams/platform-intelligence/configs/requirements.lock']
+        '-r ${workspace.file_path}/src/teams/platform-intelligence-supervisor/configs/requirements.lock']
     assert len(packages) > 100
 
 

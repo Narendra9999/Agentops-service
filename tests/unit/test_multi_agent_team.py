@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-TEAM = ROOT / 'src/teams/platform-intelligence'
+TEAM = ROOT / 'src/teams/platform-intelligence-supervisor'
 sys.path.insert(0,str(ROOT/'src'))
 
 
@@ -27,45 +27,24 @@ def resource_types(monkeypatch):
 
 def test_standard_team_loader_and_existing_worker_bindings():
     from framework.team_config import load_team_settings
-    settings=load_team_settings('platform-intelligence',str(ROOT))
-    assert settings['agent_name']=='platform_intelligence'
-    assert settings['schema']=='agentops_multi'
-    assert settings['agent_endpoint']=='fe-platform-intelligence'
+    settings=load_team_settings('platform-intelligence-supervisor',str(ROOT))
+    assert settings['agent_name']=='platform_intelligence_supervisor'
+    assert settings['agent_endpoint']=='fe-platform-intelligence-supervisor'
     cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
-    assert set(cfg['multi_agent']['workers'])=={'platform_docs','cost_estimation'}
-    assert cfg['multi_agent']['pattern']=='supervisor'
-    assert cfg['multi_agent']['implementation']=='langgraph'
-    assert not cfg['session_history']['enabled']  # App owns authenticated history.
-    assert cfg['model']['pip_dependency_mode']=='replace'
-    assert (TEAM/'agent/Agent.py').is_file()
-    assert 'vector_search' not in cfg
+    assert set(cfg['supervisor']['workers'])=={'platform_engineering','cost_intelligence'}
+    assert not (TEAM/'agent/Agent.py').exists()
+    assert cfg['inference']['target_module']=='PlatformintelligenceSupervisor'
 
 
 def test_resources_reference_existing_workers_only(monkeypatch):
     Endpoint,Genie=resource_types(monkeypatch)
     from framework.model_resources import language_model_resources
     cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
-    cfg['multi_agent']['workers']['platform_docs'].update(transport='serving_endpoint',endpoint_name='existing-knowledge')
-    cfg['multi_agent']['workers']['cost_estimation']['space_id']='existing-genie'
+    cfg['supervisor']['workers']['platform_engineering']['endpoint_name']='existing-knowledge'
+    cfg['supervisor']['workers']['cost_intelligence']['space_id']='existing-genie'
     result=language_model_resources(cfg,cfg['llm']['endpoint'])
     assert len(result)==2 and isinstance(result[0],Endpoint) and isinstance(result[1],Genie)
     assert result[0].name=='existing-knowledge' and result[1].space=='existing-genie'
-    cfg['multi_agent']['workers']['cost_estimation'].update(transport='serving_endpoint',endpoint_name='existing-cost')
-    result=language_model_resources(cfg,cfg['llm']['endpoint'])
-    assert [r.name for r in result]==['existing-knowledge','existing-cost']
-    cfg['llm'].update(api='model_serving',endpoint='existing-supervisor-llm')
-    cfg['multi_agent']['supervisor'].update(api='model_serving',model='existing-supervisor-llm')
-    result=language_model_resources(cfg,cfg['llm']['endpoint'])
-    assert [r.name for r in result]==['existing-knowledge','existing-cost','existing-supervisor-llm']
-
-
-def test_unbound_worker_fails_before_registration(monkeypatch):
-    resource_types(monkeypatch)
-    from framework.model_resources import language_model_resources
-    cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
-    cfg['multi_agent']['workers']['platform_docs'].update(transport='serving_endpoint',endpoint_name='REQUIRED_PLATFORM_ENDPOINT')
-    with pytest.raises(ValueError,match='endpoint_name'):
-        language_model_resources(cfg,cfg['llm']['endpoint'])
 
 
 def test_single_agent_resource_behavior_is_preserved(monkeypatch):
@@ -73,15 +52,6 @@ def test_single_agent_resource_behavior_is_preserved(monkeypatch):
     from framework.model_resources import language_model_resources
     result=language_model_resources({},'single-agent-llm')
     assert len(result)==1 and isinstance(result[0],Endpoint) and result[0].name=='single-agent-llm'
-
-
-def test_in_process_worker_declares_index_without_worker_endpoint(monkeypatch):
-    resource_types(monkeypatch)
-    from framework.model_resources import language_model_resources
-    cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
-    result=language_model_resources(cfg,cfg['llm']['endpoint'])
-    assert len(result)==2 and result[0].index==cfg['multi_agent']['workers']['platform_docs']['settings']['docs_index']
-    assert result[1].space==cfg['multi_agent']['workers']['cost_estimation']['space_id']
 
 
 def test_resources_are_topology_independent_and_deduplicated(monkeypatch):
@@ -95,7 +65,9 @@ def test_resources_are_topology_independent_and_deduplicated(monkeypatch):
         language_model_resources({'multi_agent':{'pattern':'customer_graph'}},'unused')
 
 
-def test_supervisor_uses_native_tracing_without_optional_observer():
+def test_supervisor_uses_native_tracing_without_framework_orchestration():
     cfg = yaml.safe_load((TEAM / 'config.yaml').read_text())
-    assert cfg['multi_agent']['settings']['observer_enabled'] is False
-    assert cfg['multi_agent']['settings']['memory_enabled'] is True
+    assert cfg['tracing']['instrumentation']['enabled']
+    source = (TEAM/'agent/PlatformintelligenceSupervisor.py').read_text()
+    assert 'framework.orchestration' not in source
+    assert not (ROOT/'src/framework/orchestration').exists()

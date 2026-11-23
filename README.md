@@ -60,10 +60,9 @@ Proposed architecture: [Multi-agent AgentOPS analysis and design](docs/design/mu
 
 ### Platform intelligence multi-agent team
 
-[`src/teams/platform-intelligence`](src/teams/platform-intelligence/README.md)
-provides the standard `Agent.py` / `ChatModel` integration for the existing
-ResponsesAgent supervisor. Platform knowledge is packaged in-process using the
-existing documentation index; Cost intelligence calls existing Genie. Agent-managed
-memory tools and Lakebase App context are implemented, with AgentOPS guardrails,
-tracing, usage and evaluation. Persistent FEVM memory setup and rollout await
-approval; see the team README for exact changes and validation boundaries.
+[`src/teams/platform-intelligence-supervisor`](src/teams/platform-intelligence-supervisor/README.md)
+is the active team example. Its team-owned LangGraph supervisor calls an existing
+Platform Engineering endpoint and an existing Genie agent. AgentOPS loads the
+configured module and wraps the agent with shared middleware, guardrails,
+tracing, usage handling, evaluation and deployment. Orchestration stays in team
+code. See the team README for configuration and validation limits.
