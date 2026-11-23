@@ -1,0 +1,20 @@
+name: cost_estimation_quality
+type: rubric
+enabled: true
+weight: 1.0
+threshold: 4.0
+criteria: >-
+  Assess grounded cost guidance and handling of missing inputs. For platform-only
+  questions, assess that the answer stays on topic without inventing costs; a
+  monetary estimate or cost discussion is not required: assign 5 when there is
+  no invented monetary claim in a platform-only answer. Assess cost guidance only.
+  Treat returned Genie calculator fields as domain evidence, not claims of official
+  Databricks API names. Compare cost claims to specialist evidence when present.
+  Judge answer quality,
+  not whether an internal worker actually executed.
+rubric: |
+  - 1: Fabricates prices, workload facts, cost sources or an unsupported monetary total.
+  - 2: Gives materially unsupported estimates or omits essential missing inputs.
+  - 3: Gives useful guidance but leaves important assumptions or evidence unclear.
+  - 4: Answers appropriately with explicit assumptions, supported figures or useful clarification; minor omissions only.
+  - 5: Fully grounded and relevant; clearly states evidence, assumptions and unresolved inputs. Numeric estimates identify rate source, region, currency and effective date. Clarification-only answers omit quotes.

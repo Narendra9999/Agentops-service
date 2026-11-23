@@ -1,0 +1,18 @@
+name: platform_evidence
+type: rubric
+enabled: true
+weight: 1.0
+threshold: 4.0
+criteria: >-
+  Assess fidelity of platform guidance and citations to supplied specialist tool
+  evidence, not independent factual truth or your prior knowledge of products.
+  Do not declare a feature or URL fabricated merely because it is unfamiliar.
+  Cost-only requests require no platform citations: assign 5 if the answer does
+  not invent platform guidance. Genie calculator fields are separate domain
+  evidence, not assertions of official Databricks API fields.
+rubric: |
+  - 1: Contradicts specialist evidence or fabricates a claim of completed infrastructure changes.
+  - 2: Material platform claims or citations differ from the supplied specialist evidence.
+  - 3: Provides platform guidance but omits relevant available documentation citations or materially overstates the evidence.
+  - 4: Platform guidance is faithful to the supplied specialist evidence and cites its Databricks documentation URLs, with minor omissions only.
+  - 5: Clearly answers the platform question with faithful synthesis and relevant documentation citations; or correctly handles a cost-only question without unrelated platform claims.
