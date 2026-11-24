@@ -19,11 +19,11 @@ from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 JUDGE_MODEL = "databricks-meta-llama-3-3-70b-instruct"
 
 
-def _call_judge(prompt: str) -> str:
+def _call_judge(prompt: str, judge_model: str = None) -> str:
     """Call the LLM judge endpoint and return the response text."""
     w = WorkspaceClient()
     response = w.serving_endpoints.query(
-        name=JUDGE_MODEL,
+        name=judge_model or JUDGE_MODEL,
         messages=[ChatMessage(role=ChatMessageRole.USER, content=prompt)],
         max_tokens=256,
         temperature=0.0,
@@ -50,7 +50,7 @@ def _extract_score(judge_response: str) -> float:
     return 3.0  # default middle score if parsing fails
 
 
-def _judge_score(question: str, answer: str, criteria: str, rubric: str = None) -> float:
+def _judge_score(question: str, answer: str, criteria: str, rubric: str = None, judge_model: str = None) -> float:
     """Ask the LLM judge to score an answer on a specific criteria with rubric examples."""
     if rubric:
         scoring_block = f"Rubric:\n{rubric}"
@@ -74,7 +74,7 @@ Answer: {answer}
 
 Respond with ONLY "Score: N" where N is 1-5, followed by a one-sentence justification."""
 
-    response = _call_judge(prompt)
+    response = _call_judge(prompt, judge_model=judge_model)
     return _extract_score(response)
 
 

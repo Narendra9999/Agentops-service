@@ -13,8 +13,8 @@ tracing:
   default_tags:
     agentops.system_id: platform-intelligence-supervisor
 llm:
-  endpoint: system.ai.claude-sonnet-4-6
-  api: ai_gateway
+  endpoint: databricks-claude-sonnet-4-6
+  api: model_serving
 session_history:
   enabled: false
 long_term_memory:
@@ -91,6 +91,8 @@ model:
     name_from: supervisor.workers.platform_engineering.endpoint_name
   - type: genie_space
     name_from: supervisor.workers.cost_intelligence.space_id
+  - type: serving_endpoint
+    name_from: llm.endpoint
 pipeline:
   request_timeout_seconds: 240
   sanity_queries:

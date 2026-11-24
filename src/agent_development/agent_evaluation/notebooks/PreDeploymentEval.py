@@ -196,31 +196,18 @@ from framework.notebook_bootstrap import resolve_fixture_path
 def resolve_fixture(filename):
     return resolve_fixture_path(nb_dir, bundle_root, team_dir, filename)
 
-# Golden dataset → UC table (if not already there)
-from framework.evaluation.evaluation_pipeline import (
-    prepare_golden_dataset_for_spark,
-    restore_golden_dataset_from_spark,
-)
-try:
-    golden_pd = spark.table(f"{catalog}.{schema}.{eval_golden_table}").toPandas()
-    golden_pd = restore_golden_dataset_from_spark(golden_pd)
-    print(f"Golden dataset: {len(golden_pd)} rows from UC table")
-except Exception:
-    golden_df = pd.read_json(resolve_fixture("golden_dataset.json"))
-    golden_spark_df = prepare_golden_dataset_for_spark(golden_df)
-    spark.createDataFrame(golden_spark_df.to_dict("records")).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{catalog}.{schema}.{eval_golden_table}")
-    golden_pd = golden_df
-    print(f"Golden dataset: {len(golden_pd)} rows loaded from JSON")
+# Resolve team fixtures before shared defaults, then refresh the evaluation tables.
+# Existing UC rows must not silently override the fixtures shipped by this team.
+from framework.evaluation.evaluation_pipeline import prepare_golden_dataset_for_spark
 
-# Adversarial dataset → UC table
-try:
-    adversarial_pd = spark.table(f"{catalog}.{schema}.{eval_adversarial_table}").toPandas()
-    print(f"Adversarial dataset: {len(adversarial_pd)} rows from UC table")
-except Exception:
-    adversarial_df = pd.read_json(resolve_fixture("adversarial_dataset.json"))
-    spark.createDataFrame(adversarial_df).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{catalog}.{schema}.{eval_adversarial_table}")
-    adversarial_pd = adversarial_df
-    print(f"Adversarial dataset: {len(adversarial_pd)} rows loaded from JSON")
+golden_pd = pd.read_json(resolve_fixture("golden_dataset.json"))
+golden_spark_df = prepare_golden_dataset_for_spark(golden_pd)
+spark.createDataFrame(golden_spark_df.to_dict("records")).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{catalog}.{schema}.{eval_golden_table}")
+print(f"Golden dataset: {len(golden_pd)} rows loaded from resolved fixture")
+
+adversarial_pd = pd.read_json(resolve_fixture("adversarial_dataset.json"))
+spark.createDataFrame(adversarial_pd).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{catalog}.{schema}.{eval_adversarial_table}")
+print(f"Adversarial dataset: {len(adversarial_pd)} rows loaded from resolved fixture")
 
 # COMMAND ----------
 

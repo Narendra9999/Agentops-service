@@ -37,6 +37,7 @@ class TargetAgentAdapter:
     """Provide invocation callbacks, binding explicit context to context-aware agents."""
 
     def __init__(self, target, config=None):
+        self.config = config or {}
         self.target = target
         self.contextual = isinstance(target, AgentOPSBase)
         self.responses = isinstance(target, ResponsesAgent)
@@ -76,6 +77,14 @@ class TargetAgentAdapter:
         return self.target, request.model_copy(update={'custom_inputs': custom})
 
     async def invoke(self, request, context):
+        from contextlib import nullcontext
+        from framework.observability.usage_tracking import capture_target_usage
+        manager = (nullcontext() if self.contextual or self.chat is not None
+                   else capture_target_usage(context.state, self.config))
+        with manager:
+            return await self._invoke(request, context)
+
+    async def _invoke(self, request, context):
         target, request = self._bind(request, context)
         if self.chat is not None:
             return await self.chat.invoke(request, context)
@@ -89,6 +98,16 @@ class TargetAgentAdapter:
         return wrap_target_result(result)
 
     async def stream(self, request, context):
+        from contextlib import nullcontext
+        from framework.observability.usage_tracking import capture_target_usage
+        manager = (nullcontext() if self.contextual or self.chat is not None
+                   else capture_target_usage(context.state, self.config))
+        with manager:
+            async with aclosing(self._stream(request, context)) as events:
+                async for event in events:
+                    yield event
+
+    async def _stream(self, request, context):
         target, request = self._bind(request, context)
         if self.chat is not None:
             stream = self.chat.stream(request, context)

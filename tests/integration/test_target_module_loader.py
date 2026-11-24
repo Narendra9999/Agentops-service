@@ -7,12 +7,12 @@ from framework.inference.target_loader import team_target_entry
 from framework.inference.cost_tracking_model import _resolve_inner_model
 
 
-def test_agent_file_wins_over_configured_module(tmp_path):
-    (tmp_path / 'Agent.py').write_text('class Target:\n    source = "agent"\n')
-    (tmp_path / 'custom.py').write_text('raise AssertionError("must not import fallback")\n')
+def test_configured_module_wins_over_agent_file(tmp_path):
+    (tmp_path / 'Agent.py').write_text('raise AssertionError("must not import default")\n')
+    (tmp_path / 'custom.py').write_text('class Target:\n    source = "module"\n')
     with patch.object(sys, 'path', [str(tmp_path)]):
         target = _resolve_inner_model({'inference': {'target_module': 'custom', 'target_class': 'Target'}})
-    assert target.source == 'agent'
+    assert target.source == 'module'
 
 
 def test_target_module_loads_from_staged_agent_directory(tmp_path):
@@ -24,11 +24,11 @@ def test_target_module_loads_from_staged_agent_directory(tmp_path):
         assert _resolve_inner_model(cfg).source == 'module'
 
 
-def test_broken_agent_does_not_fall_back(tmp_path):
-    (tmp_path / 'Agent.py').write_text('raise RuntimeError("broken agent")\n')
-    (tmp_path / 'custom.py').write_text('class ChatModel: pass\n')
+def test_broken_explicit_module_does_not_fall_back(tmp_path):
+    (tmp_path / 'custom.py').write_text('raise RuntimeError("broken agent")\n')
+    (tmp_path / 'Agent.py').write_text('class ChatModel: pass\n')
     with patch.object(sys, 'path', [str(tmp_path)]), pytest.raises(RuntimeError, match='broken agent'):
-        _resolve_inner_model({'inference': {'target_module': 'custom'}})
+        _resolve_inner_model({'inference': {'target_module': 'custom', 'target_class': 'ChatModel'}})
 
 
 def test_module_import_and_class_errors_are_reported(tmp_path):
@@ -36,7 +36,7 @@ def test_module_import_and_class_errors_are_reported(tmp_path):
     with patch.object(sys, 'path', [str(tmp_path)]), pytest.raises(ImportError, match='target_class'):
         _resolve_inner_model({'inference': {'target_module': 'custom', 'target_class': 'Missing'}})
     with patch.object(sys, 'path', [str(tmp_path)]), pytest.raises(ImportError, match='No packaged'):
-        _resolve_inner_model({'inference': {'target_module': 'absent'}})
+        _resolve_inner_model({'inference': {'target_module': 'absent', 'target_class': 'ChatModel'}})
 
 
 @pytest.mark.parametrize('module', ['../custom', 'custom.py', '/tmp/custom', 'a/b', ''])
@@ -70,3 +70,30 @@ def test_registration_detects_module_only_team(tmp_path):
     exec(compile(source[start:end], '<registration-entry-selection>', 'exec'), scope)
     assert scope['use_team_agent'] is True
     assert scope['team_entry'] == root / 'custom.py'
+
+
+def test_unrelated_notebook_agent_does_not_shadow_staged_team_module(tmp_path):
+    staged = tmp_path / 'staged'; staged.mkdir()
+    team = staged / 'agent'; team.mkdir()
+    notebooks = tmp_path / 'notebooks'; notebooks.mkdir()
+    (team / 'custom.py').write_text('class Target:\n    source = "team"\n')
+    (notebooks / 'Agent.py').write_text('raise AssertionError("unrelated notebook")\n')
+    with patch.object(sys, 'path', [str(staged), str(notebooks)]):
+        target = _resolve_inner_model({'inference': {'target_module': 'custom', 'target_class': 'Target'}})
+    assert target.source == 'team'
+
+
+def test_default_agent_used_only_without_module_config(tmp_path):
+    (tmp_path / 'Agent.py').write_text('class ChatModel:\n    source = "default"\n')
+    with patch.object(sys, 'path', [str(tmp_path)]):
+        assert _resolve_inner_model({}).source == 'default'
+        with pytest.raises(ImportError, match='No packaged'):
+            _resolve_inner_model({'inference': {'target_module': 'missing', 'target_class': 'ChatModel'}})
+
+
+@pytest.mark.parametrize('inference', [{}, {'target_module': 'custom'}, {'target_class': 'ChatModel'}])
+def test_incomplete_inference_settings_use_agent_file(tmp_path, inference):
+    (tmp_path / 'Agent.py').write_text('class ChatModel:\n    source = "default"\n')
+    (tmp_path / 'custom.py').write_text('raise AssertionError("incomplete pair")\n')
+    with patch.object(sys, 'path', [str(tmp_path)]):
+        assert _resolve_inner_model({'inference': inference}).source == 'default'

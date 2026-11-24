@@ -36,15 +36,17 @@ def test_standard_team_loader_and_existing_worker_bindings():
     assert cfg['inference']['target_module']=='PlatformintelligenceSupervisor'
 
 
-def test_resources_reference_existing_workers_only(monkeypatch):
+def test_resources_reference_existing_workers_and_supervisor_model(monkeypatch):
     Endpoint,Genie=resource_types(monkeypatch)
     from framework.model_resources import language_model_resources
     cfg=yaml.safe_load((TEAM/'config.yaml').read_text())
     cfg['supervisor']['workers']['platform_engineering']['endpoint_name']='existing-knowledge'
     cfg['supervisor']['workers']['cost_intelligence']['space_id']='existing-genie'
     result=language_model_resources(cfg,cfg['llm']['endpoint'])
-    assert len(result)==2 and isinstance(result[0],Endpoint) and isinstance(result[1],Genie)
+    assert len(result)==3 and isinstance(result[0],Endpoint) and isinstance(result[1],Genie)
     assert result[0].name=='existing-knowledge' and result[1].space=='existing-genie'
+    assert isinstance(result[2],Endpoint)
+    assert result[2].name=='databricks-claude-sonnet-4-6'
 
 
 def test_single_agent_resource_behavior_is_preserved(monkeypatch):

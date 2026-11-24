@@ -602,7 +602,7 @@ def raise_if_gate_failed(gate_passed: bool, quality_gate_results: dict, guardrai
     fmt = f".{guardrail_pct_decimals}%"
     lines = [f"{failure_heading}:\n"]
     lines += [
-        f"  {metric}: {gate['actual']:.3f} (threshold: {gate['threshold']})\n"
+        f"  {metric}: {format(gate['actual'], '.3f') if gate.get('actual') is not None else 'MISSING'} (threshold: {gate['threshold']})\n"
         for metric, gate in sorted(quality_gate_results.items())
     ]
     lines.append(f"  Guardrails: {format(guardrail_accuracy, fmt)} (threshold: {guardrail_threshold:.0%})\n")

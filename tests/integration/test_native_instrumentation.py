@@ -102,3 +102,36 @@ def test_native_openai_spans_usage_cost_and_handled_errors(tmp_path):
         mlflow.set_tracking_uri(previous_uri)
         mlflow.tracking.fluent._active_experiment_id = previous_experiment
         client.close()
+
+
+def test_request_restores_cost_processor_after_runtime_reset():
+    """Runtime tracing reconfiguration must not lose framework pricing."""
+    import mlflow
+    from mlflow.tracing.config import get_config
+    from framework.observability.usage_tracking import capture_target_usage
+    config = {'llm': {'endpoint': 'validation-model'}, 'tracing': {
+        'instrumentation': {'enabled': True, 'integration': 'langchain'}}}
+    previous = list(get_config().span_processors)
+    external = lambda span: None
+    try:
+        mlflow.tracing.configure(span_processors=[external])
+        with patch('framework.observability.usage_tracking.TokenTracker',
+                   return_value=type('Rates', (), {'pricing_per_million': lambda self: {
+                       'input': 1, 'output': 2}})()):
+            for _ in range(2):
+                with capture_target_usage({}, config):
+                    pass
+        processors = get_config().span_processors
+        assert external in processors
+        assert sum(p.__name__ == 'agentops.openai.cost.validation-model'
+                   for p in processors) == 1
+        span = Mock(span_type='CHAT_MODEL')
+        attrs = {'mlflow.llm.model': 'validation-model', 'mlflow.chat.tokenUsage': {
+            'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15}}
+        span.get_attribute.side_effect = attrs.get
+        span.set_attribute.side_effect = attrs.__setitem__
+        for processor in list(processors):
+            processor(span)
+        assert attrs['mlflow.llm.cost']['total_cost'] == pytest.approx(.00002)
+    finally:
+        mlflow.tracing.configure(span_processors=previous)

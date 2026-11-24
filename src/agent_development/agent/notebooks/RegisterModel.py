@@ -225,7 +225,7 @@ if team_config:
 
 # Resolve the team's custom agent dir — same convention as team fixtures/scorers:
 #   src/teams/<team_name>/{fixtures,scorers,agent}. When team_name is provided,
-#   model packaging prefers Agent.py, then inference.target_module.
+#   model packaging prefers a configured module/class pair, otherwise Agent.py.
 team_agent_dir = os.path.join(bundle_root, "src", "teams", team_name, "agent") if team_name else ""
 from framework.inference.target_loader import team_target_entry
 import yaml

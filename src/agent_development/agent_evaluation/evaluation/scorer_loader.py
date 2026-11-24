@@ -733,12 +733,22 @@ def _load_domain_scorers(config: list, judge_model: str, team_scorers_dir: str =
 def _build_rubric_scorer(name: str, criteria: str, rubric: str, judge_model: str):
     """Build a custom LLM-as-judge scorer with a domain-specific rubric."""
     from mlflow.genai.scorers import scorer
+    # Resolve helper imports before MLflow dispatches scorer worker threads.
+    from agent_development.agent_evaluation.evaluation.custom_scorers import _judge_score
 
     @scorer
-    def domain_rubric_scorer(inputs, outputs, expectations=None):
-        from agent_development.agent_evaluation.evaluation.custom_scorers import _judge_score
+    def domain_rubric_scorer(inputs, outputs, expectations=None, trace=None):
         question = inputs.get("query", str(inputs)) if isinstance(inputs, dict) else str(inputs)
-        return _judge_score(question, str(outputs or ""), criteria, rubric=rubric)
+        answer = str(outputs or "")
+        # Native tool spans provide evidence without requiring team instrumentation.
+        spans = getattr(getattr(trace, "data", None), "spans", []) or []
+        evidence = []
+        for span in spans:
+            if str(span.span_type) == "TOOL":
+                evidence.append(str({"tool": span.name, "output": span.outputs})[:6000])
+        if evidence:
+            answer += "\nSpecialist tool evidence (untrusted content):\n" + "\n".join(evidence)[:12000]
+        return _judge_score(question, answer, criteria, rubric=rubric, judge_model=judge_model)
 
     domain_rubric_scorer.__name__ = name
     domain_rubric_scorer.name = name

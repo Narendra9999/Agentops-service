@@ -4,6 +4,7 @@ Capture adapters choose one source per invocation; all sources use the same
 normalization and accounting path. Model invocation errors are never retried here.
 """
 import logging
+import threading
 
 import mlflow
 import time
@@ -95,6 +96,8 @@ def emit_standard_trace_metrics(
         elif token_usage and hasattr(token_usage, "to_tags"):
             trace_tags.update(token_usage.to_tags())
 
+    if request_context:
+        trace_tags.update(request_context.get("usage_tags", {}))
     if extra_tags:
         trace_tags.update(extra_tags)
 
@@ -201,3 +204,70 @@ async def ainvoke_with_usage_tracking(runnable, payload, request_context=None, m
         result = await runnable.ainvoke(payload, config={"callbacks": [capture]})
     _record_invocation_usage(callback, capture, result, request_context, model_name)
     return result
+
+
+# Registered once; the value is request-local and follows asyncio/to_thread context.
+from contextvars import ContextVar
+from contextlib import contextmanager
+
+_target_usage_callback = ContextVar("agentops_target_usage", default=None)
+_target_usage_hook_registered = False
+_target_usage_hook_lock = threading.Lock()
+
+
+class _TargetUsageCapture(_UsageCaptureCallback):
+    def __init__(self):
+        super().__init__()
+        self.records = []
+        self.lock = threading.Lock()
+
+    def on_llm_end(self, response, **kwargs):
+        with self.lock:
+            before = len(self.usages)
+            super().on_llm_end(response, **kwargs)
+            if len(self.usages) == before:
+                return
+            output = as_dict(getattr(response, "llm_output", None))
+            model = output.get("model_name") or output.get("model")
+            for group in getattr(response, "generations", None) or []:
+                for generation in group if isinstance(group, list) else [group]:
+                    metadata = as_dict(getattr(getattr(generation, "message", None), "response_metadata", None))
+                    model = model or metadata.get("model_name") or metadata.get("model")
+            self.records.append((model, self.usages[-1]))
+
+
+@contextmanager
+def capture_target_usage(state, config):
+    """Observe local LangChain calls without changing the team's agent code.
+
+    One callback per request records each model result once. Remote worker calls
+    are excluded unless their framework explicitly reports usage separately.
+    """
+    global _target_usage_hook_registered
+    options = (config.get("tracing") or {}).get("instrumentation") or {}
+    if not options.get("enabled") or options.get("integration") != "langchain":
+        yield
+        return
+    # Serving can initialize/reset tracing after model loading. Ensure the
+    # processor exists at the invocation boundary, before any model span ends.
+    from framework.observability.tracing import configure_openai_cost_fallback
+    configure_openai_cost_fallback(config)
+    from langchain_core.tracers.context import register_configure_hook
+    with _target_usage_hook_lock:
+        if not _target_usage_hook_registered:
+            register_configure_hook(_target_usage_callback, inheritable=True)
+            _target_usage_hook_registered = True
+    capture = _TargetUsageCapture()
+    token = _target_usage_callback.set(capture)
+    try:
+        yield
+    finally:
+        _target_usage_callback.reset(token)
+        for model, usage in capture.records:
+            record_usage([usage], state, model or (config.get("llm") or {}).get("endpoint", ""))
+        if capture.records:
+            state.setdefault("usage_tags", {}).update({
+                "agentops.usage.source": "provider_reported",
+                "agentops.usage.scope": "observed_local_model_calls",
+                "agentops.cost.kind": "configured_rate_estimate",
+            })

@@ -9,7 +9,7 @@ Only this supervisor is registered and deployed. The platform endpoint defaults 
 `fe-platform-single-validation`; the Genie binding uses the existing FEVM space.
 Change `supervisor.workers` in `config.yaml` for your resources. The platform endpoint
 must be a worker endpoint, not this supervisor's own endpoint. Runtime identity needs
-access to both resources and the configured AI Gateway model.
+access to both resources and the configured Model Serving model endpoint.
 
 ## Ownership
 
@@ -20,7 +20,10 @@ MLflow ResponsesAgent with no AgentOPS orchestration base class.
 
 This team intentionally has no `Agent.py`. `inference.target_module` locates
 `PlatformintelligenceSupervisor.py`; `inference.target_class` selects its class.
-For other teams, an existing `Agent.py` takes precedence over `target_module`.
+An explicit `inference.target_module` / `target_class` pair takes precedence.
+If either field is absent, AgentOPS uses `Agent.py` (class: configured
+`target_class`, otherwise `ChatModel`).
+An invalid explicit target fails loading instead of falling back to another agent.
 Dotted module names support nested packages (for example,
 `supervisors.PlatformintelligenceSupervisor`). Prompt paths must still match the
 packaged layout; `model.asset_mappings` can accommodate existing relative paths.

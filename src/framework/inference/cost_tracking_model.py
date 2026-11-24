@@ -14,7 +14,7 @@ AgentOPS owns the outer lifecycle for every target. Supported targets:
 Guardrails, history, request tracing and persistence belong to the shared
 AgentOPSMiddleware, not to a supervisor-specific team wrapper.
 
-The team entry file is Agent.py, or inference.target_module when absent.
+The team entry is the configured module/class pair; otherwise use Agent.py.
 ChatModel is the default class;
 inference.target_class can select an explicit alternate implementation.
 inference.target_protocol selects responses or chat_completions.
@@ -38,34 +38,32 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_inner_model(config=None):
-    """Prefer packaged Agent.py; use target_module only when Agent.py is absent."""
+    """Load configured module/class first; use Agent.py for incomplete settings."""
     import sys
     from pathlib import Path
-    from framework.inference.target_loader import team_target_entry
+    from framework.inference.target_loader import team_target_entry, inference_target_options
 
     config = config or {}
-    options = config.get('inference') or {}
+    options = inference_target_options(config)
     class_name = options.get('target_class', 'ChatModel')
     roots = []
     for entry in sys.path:
         for root in (Path(entry), Path(entry) / 'agent'):
             if root not in roots:
                 roots.append(root)
-    # Search all staged roots for the conventional entry point first.
-    conventional = next(((root, root / 'Agent.py') for root in roots
-                         if (root / 'Agent.py').is_file()), None)
-    selected = conventional
-    if selected is None:
-        for root in roots:
-            path = team_target_entry(root, config)
-            if path is not None:
-                selected = root, path
-                break
+    # Resolve only the explicit module when configured. An unrelated Agent.py
+    # must never shadow team inference or hide a configuration error.
+    selected = None
+    for root in roots:
+        path = team_target_entry(root, config)
+        if path is not None:
+            selected = root, path
+            break
     if selected is None:
         raise ImportError('No packaged Agent.py or inference.target_module found. '
                           'Include the team agent directory in code_paths.')
     root, path = selected
-    module_name = '_team_agent' if conventional else options['target_module']
+    module_name = options.get('target_module') or '_team_agent'
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f'Cannot load team entry point: {path}')

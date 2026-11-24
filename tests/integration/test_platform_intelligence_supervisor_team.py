@@ -139,7 +139,8 @@ def test_load_context_builds_both_workers_inside_the_team():
         target.load_context(SimpleNamespace(model_config=config()))
     assert {tool.name for tool in graph_factory.call_args.args[1]} == {
         'platform_engineering', 'cost_intelligence'}
-    assert model.client.base_url.endswith('/ai-gateway/mlflow/v1/')
+    assert config()['llm']['api'] == 'model_serving'
+    assert model.client.base_url == 'https://workspace/serving-endpoints'
 
 
 def test_packaged_team_resolves_without_original_checkout(tmp_path):

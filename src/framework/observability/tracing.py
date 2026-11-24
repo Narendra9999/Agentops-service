@@ -1,5 +1,8 @@
 """Public tracing destination configuration shared by team runtimes."""
 import os
+import threading
+
+_cost_processor_lock = threading.Lock()
 
 
 def use_experiment_destination(experiment_id):
@@ -42,7 +45,7 @@ def configure_native_instrumentation(config):
     # Fail model loading rather than silently advertise tracing that is unavailable.
     module = importlib.import_module("mlflow." + integration)
     module.autolog(disable=not enabled, log_traces=enabled, silent=False)
-    if enabled and integration == "openai":
+    if enabled:
         configure_openai_cost_fallback(config)
 
 
@@ -60,10 +63,10 @@ def configure_openai_cost_fallback(config):
     rates = {model: TokenTracker(model_name=model).pricing_per_million()}
     def fill_missing_cost(span):
         set_native_cost_fallback(span, rates)
-    processors = list(get_config().span_processors)
-    # Model loading may run more than once in a process. Replace only our own
-    # processor for this model, preserving external redaction/cost processors.
     marker = "agentops.openai.cost." + model
     fill_missing_cost.__name__ = marker
-    processors = [p for p in processors if getattr(p, "__name__", "") != marker]
-    mlflow.tracing.configure(span_processors=[*processors, fill_missing_cost])
+    with _cost_processor_lock:
+        processors = list(get_config().span_processors)
+        if any(getattr(p, "__name__", "") == marker for p in processors):
+            return
+        mlflow.tracing.configure(span_processors=[*processors, fill_missing_cost])
