@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import uuid
 
-from workers import call_genie, call_platform
+from workers import call_genie_as_user, call_platform
 
 from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse, ResponsesAgentStreamEvent
@@ -42,7 +42,7 @@ class PlatformIntelligenceSupervisor(ResponsesAgent):
         @tool
         async def cost_intelligence(task: str) -> str:
             """Ask the existing Genie agent about costs, estimates, pricing, or missing workload inputs."""
-            return await call_genie(self.workspace, space_id, task)
+            return await call_genie_as_user(space_id, task)
 
         model = ChatDatabricks(model=config['llm']['endpoint'], workspace_client=self.workspace,
                                temperature=0, max_retries=0)
