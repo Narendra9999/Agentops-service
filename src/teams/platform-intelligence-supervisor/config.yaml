@@ -86,6 +86,10 @@ model:
   promote_on_registration: false
   pip_dependency_mode: replace
   pip_dependencies_file: configs/requirements.lock
+  auth_policy:
+    user_api_scopes:
+    - genie
+    - sql
   resources:
   - type: serving_endpoint
     name_from: supervisor.workers.platform_engineering.endpoint_name
