@@ -54,6 +54,24 @@ def language_model_resources(config, resolved_llm_endpoint):
     return resources
 
 
+def model_auth_kwargs(config, resources):
+    """Keep automatic system auth unless the team explicitly enables user scopes."""
+    options = (config.get('model') or {}).get('auth_policy')
+    if options is None:
+        return {'resources': resources}
+    if not isinstance(options, dict) or set(options) != {'user_api_scopes'}:
+        raise ValueError('model.auth_policy requires only user_api_scopes')
+    scopes = options['user_api_scopes']
+    if (not isinstance(scopes, list) or not scopes
+            or any(not isinstance(scope, str) or not scope.strip() for scope in scopes)):
+        raise ValueError('model.auth_policy.user_api_scopes must be a nonempty list of scope names')
+    from mlflow.models.auth_policy import AuthPolicy, SystemAuthPolicy, UserAuthPolicy
+    return {'auth_policy': AuthPolicy(
+        system_auth_policy=SystemAuthPolicy(resources=resources),
+        user_auth_policy=UserAuthPolicy(api_scopes=list(dict.fromkeys(scope.strip() for scope in scopes))),
+    )}
+
+
 def model_dependencies(config, config_directory, defaults):
     """Read one team lock file or legacy inline packages, then extend/replace defaults."""
     model = config.get('model') or {}
