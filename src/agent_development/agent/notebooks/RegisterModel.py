@@ -62,13 +62,25 @@ from framework.notebook_bootstrap import initialize_notebook
 notebook_runtime = initialize_notebook(dbutils)
 
 from framework.notebook_bootstrap import install_air_gapped_packages
-vol_path = install_air_gapped_packages([
+registration_packages = [
     "databricks-agents==1.5.0", "mlflow>=3.7.0",
     "databricks-langchain[memory]==0.5.1", "langchain==0.3.21",
     "langchain-community==0.3.10", "langchain-core==0.3.63",
     "langchain-text-splitters==0.3.8", "databricks-vectorsearch>=0.40",
     "sqlglot", "tabulate", "numpy", "pandas",
-])
+]
+from framework.model_resources import model_dependencies
+from framework.notebook_bootstrap import resolve_agent_config_path
+import yaml
+dependency_config_path = (
+    os.path.join(notebook_runtime['bundle_root'], team_config) if team_config
+    else resolve_agent_config_path(notebook_runtime['bundle_root'], team_name)
+)
+with open(dependency_config_path) as dependency_file:
+    dependency_config = yaml.safe_load(dependency_file) or {}
+registration_packages = model_dependencies(
+    dependency_config, os.path.dirname(dependency_config_path), registration_packages)
+vol_path = install_air_gapped_packages(registration_packages)
 
 dbutils.library.restartPython()
 
@@ -226,6 +238,7 @@ if team_config:
 # Resolve the team's custom agent dir — same convention as team fixtures/scorers:
 #   src/teams/<team_name>/{fixtures,scorers,agent}. When team_name is provided,
 #   model packaging prefers a configured module/class pair, otherwise Agent.py.
+
 team_agent_dir = os.path.join(bundle_root, "src", "teams", team_name, "agent") if team_name else ""
 from framework.inference.target_loader import team_target_entry
 import yaml
@@ -542,6 +555,7 @@ if model_cfg.get("asset_mappings") and use_team_agent:
 
 from framework.team_runtime import TeamRuntime
 team_runtime = TeamRuntime(bundle_root, team_name, dbutils)
+from framework.model_resources import model_auth_kwargs
 
 with mlflow.start_run(run_name="agent_registration"):
     log_model_kwargs = {
@@ -549,7 +563,7 @@ with mlflow.start_run(run_name="agent_registration"):
         "python_model": python_model,
         "model_config": runtime_config,
         "code_paths": code_paths,
-        "resources": resources,
+        **model_auth_kwargs(agent_config, resources),
         "conda_env": conda_env,
         "artifacts": model_artifacts,
         "input_example": team_runtime.input_example(
@@ -565,6 +579,12 @@ with mlflow.start_run(run_name="agent_registration"):
     except Exception:
         log_model_kwargs["signature"] = signature
     model_info = mlflow.pyfunc.log_model(**log_model_kwargs)
+    expected_auth_policy = log_model_kwargs.get("auth_policy")
+    if expected_auth_policy is not None:
+        logged_auth_policy = mlflow.models.Model.load(model_info.model_uri).auth_policy
+        if logged_auth_policy != expected_auth_policy.to_dict():
+            raise RuntimeError("Logged model authentication policy does not match team configuration")
+        print("Verified logged system resources and user authentication scopes")
 
 print(f"Logged: {model_info.model_uri}")
 
