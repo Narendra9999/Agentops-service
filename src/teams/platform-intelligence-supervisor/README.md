@@ -3,13 +3,14 @@
 A team-owned LangGraph supervisor calls two existing workers:
 
 - `platform_engineering`: a Responses-compatible serving endpoint.
-- `cost_intelligence`: an existing Genie space, using STANDARD agent mode.
+- `cost_intelligence`: an existing Genie space, using the SDK conversations API.
 
 Only this supervisor is registered and deployed. The platform endpoint defaults to
 `fe-platform-single-validation`; the Genie binding uses the existing FEVM space.
 Change `supervisor.workers` in `config.yaml` for your resources. The platform endpoint
-must be a worker endpoint, not this supervisor's own endpoint. Runtime identity needs
-access to both resources and the configured Model Serving model endpoint.
+must be a worker endpoint, not this supervisor's own endpoint. System identity
+provides the supervisor model and platform worker access. Genie uses the invoking
+caller's credentials and permissions.
 
 ## Ownership
 
@@ -55,7 +56,7 @@ The target exposes standard `predict()` and `predict_stream()` methods only;
 private `_run()` executes its async graph. AgentOPS bridges these synchronous
 entry points into its async middleware. Streaming returns the final output item
 through the shared buffered middleware.
-Worker exceptions propagate to AgentOPS error handling; calls are not automatically
+Unhandled worker exceptions propagate to AgentOPS error handling; calls are not automatically
 retried. Routing is model-driven and bounded by the configured graph step limit;
 the prompt's once-per-worker rule is an instruction, not an enforced call quota.
 
@@ -93,3 +94,37 @@ failure propagation, rubric resolution, module-only registration selection, entr
 and class/worker imports from an isolated
 packaged copy. Providers and workers are controlled in these tests; these results
 do not establish live FEVM deployment or rubric judge quality on this branch.
+
+
+## Caller-authorized Genie access
+
+`model.auth_policy.user_api_scopes` declares `genie` and `sql` scopes at model
+registration. Registration verifies that the saved policy matches the configured
+policy. Other teams retain resources-only registration unless they opt in.
+`deployment.environment_vars` configures the system identity separately; those
+credentials are not used as a fallback for the Genie worker.
+
+A workspace administrator must enable the Model Serving preview
+`Agent Framework: On-Behalf-Of-User Authorization` (`agents_obo`) before deploying.
+App OBO is a separate setting. The caller needs Genie, SQL warehouse and Unity
+Catalog data permissions; scopes do not grant those permissions.
+
+The Genie tool creates `ModelServingUserCredentials` inside each invocation.
+It starts a conversation, waits for completion, and returns text plus query schema
+and result data to the supervisor. This is the conversations API, not the Genie
+Agent Responses API or STANDARD agent mode. Each tool call starts a new Genie
+conversation. The connector returns the query-result chunk supplied by the SDK;
+it does not fetch additional result chunks or render charts.
+
+Missing caller credentials or permission denial produces the explicit
+`Skipping Genie` tool result. Other worker failures propagate. Live validation
+must check successful Genie execution and conversation ownership, rather than
+accepting a successful HTTP response containing a skipped worker.
+
+An App invoking the endpoint with its service principal represents that principal.
+Forwarding a human user's identity requires separate App user authorization.
+Remote platform internals continue to use that endpoint's own authentication
+policy. Supervisor trace costs cover observed model calls, not complete remote
+worker billing.
+
+See [current FEVM OBO validation](FEVM_OBO_VALIDATION.md) for the merged branch test results.

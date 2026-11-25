@@ -80,29 +80,85 @@ def test_target_runs_through_shared_middleware_prediction_and_stream():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('failed', [False, True])
-def test_genie_standard_mode_and_failure_propagation(failed):
-    async def run():
-        workers = load_module('team_workers', 'workers/__init__.py')
-        def handler(request):
-            body = json.loads(request.content)
-            assert body['execution_mode'] == 'STANDARD'
-            assert '/genie/agents/space-id/responses' in str(request.url)
-            event = {'type': 'response.failed'} if failed else {
-                'type': 'response.completed', 'response': {'output': [{'type': 'message',
-                    'role': 'assistant', 'content': [{'type': 'output_text', 'text': 'Need run frequency.'}]}]}}
-            return httpx.Response(200, headers={'content-type': 'text/event-stream'},
-                                  text='data: ' + json.dumps(event) + '\n\n')
-        client_type = httpx.AsyncClient
-        workspace = SimpleNamespace(config=SimpleNamespace(host='https://workspace', authenticate=lambda: {}))
-        with patch.object(httpx, 'AsyncClient', side_effect=lambda **kw: client_type(
-                transport=httpx.MockTransport(handler), **kw)):
-            if failed:
-                with pytest.raises(RuntimeError, match='execution failed'):
-                    await workers.call_genie(workspace, 'space-id', 'Estimate batch')
-            else:
-                assert await workers.call_genie(workspace, 'space-id', 'Estimate batch') == 'Need run frequency.'
-    asyncio.run(run())
+def test_genie_conversation_text_and_query_result_contract():
+    from datetime import timedelta
+    from unittest.mock import Mock
+    from databricks.sdk.service.dashboards import GenieMessage, GenieGetMessageQueryResultResponse
+    worker = load_module('genie_worker', 'workers/cost_intelligence.py')
+    message = GenieMessage.from_dict({
+        'space_id': 'space-id', 'conversation_id': 'conversation-id', 'message_id': 'message-id',
+        'attachments': [
+            {'text': {'content': 'Estimated monthly cost'}},
+            {'attachment_id': 'query-id', 'query': {'description': 'Monthly total',
+                                                    'query': 'SELECT 42 AS monthly_cost'}}]})
+    result = GenieGetMessageQueryResultResponse.from_dict({'statement_response': {
+        'manifest': {'schema': {'columns': [{'name': 'monthly_cost', 'type_name': 'LONG'}]}},
+        'result': {'data_array': [['42']], 'row_count': 1}, 'status': {'state': 'SUCCEEDED'}}})
+    genie = SimpleNamespace(start_conversation_and_wait=Mock(return_value=message),
+                            get_message_attachment_query_result=Mock(return_value=result))
+    answer = asyncio.run(worker.call_genie(SimpleNamespace(genie=genie), 'space-id', 'Estimate cost'))
+    assert answer.splitlines()[0] == 'Estimated monthly cost'
+    data = json.loads(answer.splitlines()[1])
+    assert data['result']['data_array'] == [['42']]
+    assert data['manifest']['schema']['columns'][0]['name'] == 'monthly_cost'
+    genie.start_conversation_and_wait.assert_called_once_with(
+        space_id='space-id', content='Estimate cost', timeout=timedelta(seconds=180))
+    genie.get_message_attachment_query_result.assert_called_once_with(
+        space_id='space-id', conversation_id='conversation-id', message_id='message-id',
+        attachment_id='query-id')
+
+
+@pytest.mark.parametrize('attachments,error', [
+    ([], 'no assistant answer'),
+    ([{'query': {'query': 'SELECT 1'}}], 'no ID'),
+    ([{'attachment_id': 'query-id', 'query': {'query': 'SELECT 1'}}], 'no result'),
+])
+def test_genie_invalid_conversation_results_fail(attachments, error):
+    from unittest.mock import Mock
+    from databricks.sdk.service.dashboards import GenieMessage, GenieGetMessageQueryResultResponse
+    worker = load_module('genie_worker', 'workers/cost_intelligence.py')
+    message = GenieMessage.from_dict({'space_id': 'space-id', 'conversation_id': 'conversation-id',
+                                     'message_id': 'message-id', 'attachments': attachments})
+    genie = SimpleNamespace(start_conversation_and_wait=Mock(return_value=message),
+        get_message_attachment_query_result=Mock(return_value=GenieGetMessageQueryResultResponse()))
+    with pytest.raises(RuntimeError, match=error):
+        asyncio.run(worker.call_genie(SimpleNamespace(genie=genie), 'space-id', 'Estimate'))
+
+
+@pytest.mark.parametrize('failure', ['missing_credentials', 'permission_denied', 'unauthenticated'])
+def test_genie_obo_denials_do_not_retry_with_system_identity(monkeypatch, failure):
+    from unittest.mock import Mock
+    from databricks.sdk.errors import PermissionDenied, Unauthenticated
+    worker = load_module('genie_worker', 'workers/cost_intelligence.py')
+    monkeypatch.setitem(sys.modules, 'databricks_ai_bridge', SimpleNamespace(
+        ModelServingUserCredentials=lambda: 'user-strategy'))
+    error = {'permission_denied': PermissionDenied, 'unauthenticated': Unauthenticated}.get(failure)
+    genie = SimpleNamespace(start_conversation_and_wait=Mock(side_effect=error('denied') if error else None))
+    with patch('databricks.sdk.WorkspaceClient', **(
+        {'side_effect': ValueError('missing invoker')} if failure == 'missing_credentials'
+        else {'return_value': SimpleNamespace(genie=genie)})) as client:
+        answer = asyncio.run(worker.call_genie_as_user('space-id', 'Estimate'))
+    assert answer.startswith('Skipping Genie')
+    client.assert_called_once_with(credentials_strategy='user-strategy')
+    assert genie.start_conversation_and_wait.call_count == (0 if failure == 'missing_credentials' else 1)
+
+
+def test_genie_obo_caller_is_resolved_per_invocation(monkeypatch):
+    from unittest.mock import Mock
+    from databricks.sdk.service.dashboards import GenieMessage
+    worker = load_module('genie_worker', 'workers/cost_intelligence.py')
+    monkeypatch.setitem(sys.modules, 'databricks_ai_bridge', SimpleNamespace(
+        ModelServingUserCredentials=lambda: 'user-strategy'))
+    def caller(text):
+        message = GenieMessage.from_dict({'space_id': 'space-id', 'conversation_id': text,
+            'message_id': 'message-id', 'attachments': [{'text': {'content': text}}]})
+        return SimpleNamespace(genie=SimpleNamespace(start_conversation_and_wait=Mock(return_value=message)))
+    with patch('databricks.sdk.WorkspaceClient', side_effect=[caller('caller-one'), caller('caller-two')]) as client:
+        async def run():
+            return await asyncio.gather(worker.call_genie_as_user('space-id', 'Estimate'),
+                                        worker.call_genie_as_user('space-id', 'Estimate'))
+        assert asyncio.run(run()) == ['caller-one', 'caller-two']
+    assert client.call_count == 2
 
 
 def test_remote_platform_uses_responses_contract():
@@ -171,7 +227,7 @@ assert target.__class__.__name__ == 'PlatformIntelligenceSupervisor'
 assert (Path.cwd() / 'configs/prompts.json').is_file()
 import workers
 assert workers.call_platform.__module__ == 'workers.platform_engineering'
-assert workers.call_genie.__module__ == 'workers.cost_intelligence'
+assert workers.call_genie_as_user.__module__ == 'workers.cost_intelligence'
 """
     environment = dict(os.environ, PYTHONPATH=str(Path('src').resolve()))
     result = subprocess.run([sys.executable, '-c', script], cwd=tmp_path,
